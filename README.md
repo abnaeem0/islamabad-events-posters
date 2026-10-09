@@ -1,40 +1,45 @@
-# Islamabad Local Events Feed — V1
+# Islamabad Events — collection and guest information service
 
-A low-maintenance, human-curated Islamabad events pipeline.
+Collect Islamabad event posters from Android screenshots, extract their details using Gemini, retain original evidence, and maintain a deduplicated list of upcoming events. The immediate use is helping the hotel's guests and Islamabad-based customers arranging stays for visitors. WhatsApp digests tailored to the next week, two weeks or month are potential outputs; distribution and any public website are **not yet implemented**. Tag filtering, semantic search and cropping can wait.
 
-## V1 scope
+## Current pipeline (V3 proposal)
 
-Android screenshot → Google Drive inbox → Google Apps Script → Gemini vision extraction → Google Sheet review.
+Android screenshot → Google Drive inbox → Apps Script / Gemini → Google Sheet.
 
-This first iteration deliberately stops at the review sheet. It does **not** publish to the website yet.
+- **Events**: raw extracted observations, append-only source data, including repeated posters. The original 26 V1 columns are retained, followed by four grouping metadata columns. Existing rows are not deleted or migrated automatically.
+- **Upcoming Events**: one consolidated record per event ID, regardless of how far away the future date is. Past events vanish from this view; source observations remain stored. Rebuild fills blank fields but preserves existing populated canonical fields, including manual edits.
+- **Event Review**: only unresolved uncertainty, missing identity/date and conflicting details, grouped by event ID. Choose a dropdown action, then the installed edit trigger immediately runs `refreshEventViews` (or run it manually if the trigger is unavailable). Resolved rows disappear from this tab, not from the raw archive.
 
-## What V1 proves
+### Review actions
 
-1. A screenshot can be saved from an Android phone into one Drive folder.
-2. Apps Script discovers it automatically.
-3. Gemini extracts useful event information from the poster.
-4. The original untouched screenshot remains the evidence/source.
-5. A human can review/edit the extracted row in Google Sheets.
-6. Failures are visible and can be retried.
+- `Merge suggested`: assign the source record to the suggested group.
+- `Keep separate`: retain its separate group and suppress this suggestion.
+- `Dismiss warning`: acknowledge the issue, keeping the current canonical fields.
+- `Use source details`: overwrite populated canonical fields with the selected source's nonblank fields.
 
-## Repository
+Different event dates are considered separate events even if names match, unless explicit reschedule language suggests a **manual review**, never an automatic date merge. Identical title/date/venue and strong variants may auto-merge. Matching is heuristic: inspect the digest window before distributing anything.
 
-- `apps-script/` — paste these files into one Google Apps Script project.
-- `docs/SETUP.md` — exact setup steps.
-- `docs/EVENT_SCHEMA.md` — event fields and conventions.
-- `samples/` — example extracted record.
+## Reliability and data conventions
 
-## V1 operating assumptions
+- Preserve every original poster link; never delete or crop it during ingestion.
+- Multiple events in one poster become distinct source rows, linked to that poster.
+- Pakistani mobile numbers are saved as a JSON array of E.164 strings (e.g. `["+923001234567"]`); nonmobile contacts are preserved as written.
+- Missing values become empty cells; retain uncertain notes when needed.
+- Failed Gemini requests remain retryable on subsequent scans. A file with source observations already written is not reinserted on retry.
+- Avoid overwriting manual edits. The main list can be checked only when preparing a selected WhatsApp digest period.
 
-- Roughly 10 new posters/day.
-- Input is primarily screenshots from Instagram on Android.
-- Original screenshots are never altered or deleted by the script.
-- Google Drive stores images; GitHub stores code only.
-- Google Sheets is the review interface/database for now.
-- Free services are preferred and operating spend should remain near zero.
-- Human approval is required before future publication.
-- Duplicate/update detection is intentionally deferred until we have real extracted data to test against.
+## Code responsibilities
 
-## Security
+| File | Responsibility |
+| --- | --- |
+| `Config.gs` | Script properties and original schema |
+| `Main.gs` | Inbox/trigger coordination |
+| `Gemini.gs` | Poster extraction, structured array output |
+| `Normalize.gs` | Phone/date/text normalization |
+| `Matching.gs` | Pure duplicate and reschedule matching policy |
+| `EventsPipeline.gs` | Raw storage, canonical grouping, review decisions |
+| `Sheet.gs`, `Utils.gs` | V1 sheet operations and helpers |
 
-Do not commit your Gemini API key. Store it in Apps Script **Script Properties** as `GEMINI_API_KEY`.
+**Deployment:** Follow [docs/SETUP.md](docs/SETUP.md). Deploy on a test copy before updating the running script. GitHub does not deploy Apps Script automatically. Keep API keys in Apps Script Script Properties, never GitHub.
+
+**Constraints:** About 10 posters per day; free tools preferred; budget ideally zero, at most about PKR 500/month. The user can submit posters entirely from Android. There is no automatic WhatsApp sending or website in V3.

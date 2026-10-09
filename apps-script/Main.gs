@@ -9,9 +9,11 @@ function setupProject() {
   SpreadsheetApp.openById(settings.spreadsheetId);
 
   ensureEventsSheet_();
+  setupPipeline_();
   installInboxTrigger_();
+  installReviewTrigger_();
 
-  console.log('Islamabad Events V1 setup complete.');
+  console.log('Islamabad Events V3 setup complete.');
 }
 
 /**
@@ -66,11 +68,8 @@ function processOneFile_(file) {
     throw new Error('Image exceeds V1 size limit of ' + CONFIG.MAX_IMAGE_BYTES + ' bytes.');
   }
 
-  const extraction = extractEventFromPoster_(blob, file.getName());
-  const row = buildEventRow_(file, extraction);
-
-  appendEventRow_(row);
-  markProcessed_(file.getId());
+  const extractions = extractEventFromPoster_(blob, file.getName());
+  putRawEvents_(file, extractions);
 
   console.log('Processed: ' + file.getName());
 }

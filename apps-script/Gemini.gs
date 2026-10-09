@@ -9,7 +9,7 @@ function extractEventFromPoster_(blob, filename) {
   const prompt = [
     'You extract public event information from event posters for an Islamabad events guide.',
     '',
-    'Read this poster carefully. Extract only information supported by the image.',
+    'Read this poster carefully. Return a separate item for each genuinely separate event. Multiple days of one event can remain one item. Extract only information supported by the image.',
     'Do not invent missing facts.',
     'The event is expected to be relevant to Islamabad, Pakistan, but do not use that expectation to fill missing venue/address details.',
     '',
@@ -30,6 +30,8 @@ function extractEventFromPoster_(blob, filename) {
     '- medium = useful extraction but one or more important details are unclear',
     '- low = poster is difficult to read or key event identity/date/location is ambiguous',
     '',
+    'Contact rules: preserve every phone number, email, or other contact shown. Separate multiple contacts with semicolons.',
+    'If a later poster explicitly announces a rescheduling or relocation, note it verbatim in extraction_notes.',
     'Filename: ' + filename
   ].join('\n');
 
@@ -108,10 +110,18 @@ function extractEventFromPoster_(blob, filename) {
     throw new Error('Could not parse Gemini structured output: ' + truncate_(textPart.text, 1000));
   }
 
-  return normalizeExtraction_(result);
+  if (!result || !Array.isArray(result.events)) throw new Error('Gemini did not return events array');
+  return result.events.map(normalizeExtraction_).filter(function(e){return e.title || e.start_date || e.venue;});
 }
 
 function getGeminiResponseSchema_() {
+  return {
+    type:'OBJECT',
+    properties:{events:{type:'ARRAY',items:getSingleEventSchema_()}},
+    required:['events']
+  };
+}
+function getSingleEventSchema_() {
   return {
     type: 'OBJECT',
     properties: {
@@ -183,7 +193,7 @@ function normalizeExtraction_(x) {
     address: cleanNullable_(x.address),
     organizer: cleanNullable_(x.organizer),
     price: cleanNullable_(x.price),
-    contact: cleanNullable_(x.contact),
+    contact: normalizedContact_(x.contact),
     registration_url: cleanNullable_(x.registration_url),
     description: cleanNullable_(x.description),
     categories: cleanArray_(x.categories),
