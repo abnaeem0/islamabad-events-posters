@@ -1,0 +1,30 @@
+{
+  "id": "evt_20260926_100000_ab12cd34",
+  "status": "pending",
+  "title": "Example Event",
+  "start_date": "2026-10-03",
+  "end_date": null,
+  "start_time": "17:00",
+  "end_time": null,
+  "venue": "Example Venue",
+  "address": "Islamabad",
+  "organizer": "Example Organizer",
+  "price": "Free",
+  "contact": null,
+  "registration_url": null,
+  "description": "Example only \u2014 real values are extracted from the poster.",
+  "categories": [
+    "arts"
+  ],
+  "age_info": null,
+  "source_platform": "instagram_screenshot",
+  "source_account": "@example",
+  "confidence": "high",
+  "uncertain_fields": [],
+  "extraction_notes": null,
+  "original_image_file_id": "DRIVE_FILE_ID",
+  "original_image_url": "DRIVE_FILE_URL",
+  "original_filename": "Screenshot_Example.jpg",
+  "processed_at": "2026-09-26T10:00:00.000Z",
+  "error": ""
+}
