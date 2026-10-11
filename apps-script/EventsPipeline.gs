@@ -7,7 +7,7 @@ const PIPE = Object.freeze({
   RAW:'Events', UPCOMING:'Upcoming Events', REVIEW:'Event Review',
   META:['group_id','match_status','review_reason','suggested_group_id'],
   UPCOMING_HEADERS:['group_id'].concat(CONFIG.HEADERS.filter(function(x){return x!=='id' && x!=='status' && x!=='error';})).concat(['source_count','updated_at','manual_notes']),
-  REVIEW_HEADERS:['source_id','group_id','suggested_group_id','title','start_date','venue','reason','action','poster_url']
+  REVIEW_HEADERS:['priority','action','issue','existing_title','incoming_title','existing_date','incoming_date','existing_time','incoming_time','existing_venue','incoming_venue','differences','existing_poster','incoming_poster','source_id','group_id','suggested_group_id']
 });
 function table_(name, headings) {
   const ss = SpreadsheetApp.openById(getSettings_().spreadsheetId);
@@ -25,10 +25,62 @@ function setupPipeline_() {
   if (headers.every(function(x){return !x;})) raw.getRange(1,start,1,PIPE.META.length).setValues([PIPE.META]);
   else PIPE.META.forEach(function(h,i){if(headers[i]!==h)throw new Error('Existing Events metadata mismatch: '+h);});
   table_(PIPE.UPCOMING,PIPE.UPCOMING_HEADERS);
-  const rev=table_(PIPE.REVIEW,PIPE.REVIEW_HEADERS);
+  const rev=reviewTable_();
   const col=PIPE.REVIEW_HEADERS.indexOf('action')+1;
+  rev.setFrozenRows(1);rev.setFrozenColumns(2);
+  rev.getRange(1,1,1,PIPE.REVIEW_HEADERS.length).setFontWeight('bold');
+  rev.getRange(2,1,Math.max(1,rev.getMaxRows()-1),PIPE.REVIEW_HEADERS.length).setWrap(true);
+  rev.setColumnWidth(3,290);rev.setColumnWidth(12,420);
+  rev.setColumnWidth(2,160);
   const rule=SpreadsheetApp.newDataValidation().requireValueInList(['Merge suggested','Keep separate','Dismiss warning','Use source details'],true).setAllowInvalid(false).build();
   rev.getRange(2,col,Math.max(1,rev.getMaxRows()-1),1).setDataValidation(rule);
+}
+/** Safely migrate the original review columns without losing pending dropdown choices. */
+function reviewTable_() {
+  const ss=SpreadsheetApp.openById(getSettings_().spreadsheetId);
+  let sh=ss.getSheetByName(PIPE.REVIEW);
+  if (!sh || !sh.getLastRow()) return table_(PIPE.REVIEW, PIPE.REVIEW_HEADERS);
+  const existingHeaders=sh.getRange(1,1,1,sh.getLastColumn()).getValues()[0];
+  if (PIPE.REVIEW_HEADERS.every(function(h,i){return existingHeaders[i]===h;})) return sh;
+  const old=['source_id','group_id','suggested_group_id','title','start_date','venue','reason','action','poster_url'];
+  if (!old.every(function(h,i){return existingHeaders[i]===h;}))
+    throw new Error('Unknown Event Review columns. Back up the tab before migration.');
+  const previous=readObjects_(sh);
+  const converted=previous.filter(function(r){return blank_(r.source_id);}).map(function(r){
+    const values={priority:'',issue:r.reason,existing_title:'',existing_date:'',existing_time:'',existing_venue:'',
+      incoming_title:r.title,incoming_date:r.start_date,incoming_time:'',incoming_venue:r.venue,
+      differences:r.reason,action:r.action,existing_poster:'',incoming_poster:r.poster_url,
+      source_id:r.source_id,group_id:r.group_id,suggested_group_id:r.suggested_group_id};
+    return PIPE.REVIEW_HEADERS.map(function(h){return values[h]||'';});
+  });
+  if(sh.getMaxColumns()<PIPE.REVIEW_HEADERS.length)
+    sh.insertColumnsAfter(sh.getMaxColumns(),PIPE.REVIEW_HEADERS.length-sh.getMaxColumns());
+  sh.getRange(1,1,sh.getMaxRows(),sh.getLastColumn()).clearContent().clearDataValidations();
+  sh.getRange(1,1,1,PIPE.REVIEW_HEADERS.length).setValues([PIPE.REVIEW_HEADERS]);
+  if(converted.length)sh.getRange(2,1,converted.length,PIPE.REVIEW_HEADERS.length).setValues(converted);
+  sh.setFrozenRows(1);
+  return sh;
+}
+function reviewItem_(source, groupId, suggestion, reason, canonical, groups) {
+  const other=(suggestion && groups[suggestion] && groups[suggestion][0]) || canonical || {};
+  const differences=[];
+  ['title','start_date','start_time','venue','price','contact'].forEach(function(k){
+    const a=blank_(other[k]), b=blank_(source[k]);
+    if(a && b && wordKey_(a)!==wordKey_(b))
+      differences.push(k.replace(/_/g,' ')+': '+a+' → '+b);
+    else if(!a && b && k!=='title' && k!=='start_date')
+      differences.push('New '+k.replace(/_/g,' ')+': '+b);
+  });
+  const urgent=/reschedul|date|time|venue|missing/i.test(reason);
+  const isMismatch=!!(suggestion && groups[suggestion]);
+  return {
+    priority:urgent?'High':'Normal',issue:reason,
+    existing_title:other.title||'',existing_date:other.start_date||'',existing_time:other.start_time||'',existing_venue:other.venue||'',
+    incoming_title:source.title||'',incoming_date:source.start_date||'',incoming_time:source.start_time||'',incoming_venue:source.venue||'',
+    differences:differences.join(' | ') || (isMismatch?'Compare source posters':'No field differences detected'),
+    action:'',existing_poster:other.original_image_url||'',incoming_poster:source.original_image_url||'',
+    source_id:source.id,group_id:groupId,suggested_group_id:suggestion||''
+  };
 }
 function readObjects_(sheet) {
   if(sheet.getLastRow()<2)return [];
@@ -60,7 +112,7 @@ function refreshEventViews() {
 }
 function refreshEventViews_() {
   setupPipeline_();
-  const sh=ensureEventsSheet_(), up=table_(PIPE.UPCOMING,PIPE.UPCOMING_HEADERS), rev=table_(PIPE.REVIEW,PIPE.REVIEW_HEADERS);
+  const sh=ensureEventsSheet_(), up=table_(PIPE.UPCOMING,PIPE.UPCOMING_HEADERS), rev=reviewTable_();
   const existing=readObjects_(up), byId={};existing.forEach(function(x){byId[String(x.group_id)]=x;});
   const source=readObjects_(sh).filter(function(x){return x.status!==CONFIG.STATUS.ERROR && x.id;});
   // Apply review choices before recomputing the queue. Process decisions only once.
@@ -71,8 +123,10 @@ function refreshEventViews_() {
       updateMeta_(sh,s._row,{group_id:r.suggested_group_id,match_status:'manual',review_reason:'',suggested_group_id:''});
       s.group_id=r.suggested_group_id;s.match_status='manual';s.review_reason='';s.suggested_group_id='';
     }else if(action==='Keep separate'||action==='Dismiss warning'||action==='Use source details'){
-      updateMeta_(sh,s._row,{match_status:action==='Keep separate'?'separate':'manual',review_reason:'',suggested_group_id:''});
-      s.match_status=action==='Keep separate'?'separate':'manual';s.review_reason='';s.suggested_group_id='';
+      const separate=action==='Keep separate';
+      const revisedGroup=separate?'E_'+String(s.id):s.group_id;
+      updateMeta_(sh,s._row,{group_id:revisedGroup,match_status:separate?'separate':'manual',review_reason:'',suggested_group_id:''});
+      s.group_id=revisedGroup;s.match_status=separate?'separate':'manual';s.review_reason='';s.suggested_group_id='';
       if(action==='Use source details') {const dest=byId[String(s.group_id)];if(dest){eventFields_().forEach(function(k){if(blank_(s[k]))dest[k]=s[k];});}}
     }
   });
@@ -97,7 +151,7 @@ function refreshEventViews_() {
     let canonical=byId[gid]?Object.assign({},byId[gid]):Object.assign({},parts[0]);
     canonical.group_id=gid;
     // Fill blanks only. Existing canonical edits are never overwritten.
-    parts.forEach(function(part){eventFields_().forEach(function(k){if(!blank_(canonical[k]) && blank_(part[k]))canonical[k]=part[k];});});
+    parts.forEach(function(part){eventFields_().forEach(function(k){if(!blank_(part[k]) && blank_(canonical[k]))canonical[k]=part[k];});});
     const conflicts=[];
     parts.slice(1).forEach(function(p){const diff=conflictingFields_(canonical,p);if(diff.length && p.match_status!=='manual' && p.match_status!=='separate')conflicts.push({p:p,reason:'Conflicting '+diff.join(', ')});});
     parts.forEach(function(p){
@@ -105,7 +159,7 @@ function refreshEventViews_() {
       const conflict=conflicts.find(function(x){return x.p.id===p.id;});if(conflict)why=why?why+'; '+conflict.reason:conflict.reason;
       if((!blank_(p.title)||!dateKey_(p.start_date)) && !why && p.match_status!=='manual')why='Missing title or date';
       if(why && !isPast_(p) && p.match_status!=='separate' && p.match_status!=='manual')
-        review.push({source_id:p.id,group_id:gid,suggested_group_id:p.suggested_group_id,title:p.title,start_date:p.start_date,venue:p.venue,reason:why,action:'',poster_url:p.original_image_url});
+        review.push(reviewItem_(p,gid,p.suggested_group_id,why,canonical,groups));
     });
     if(!isPast_(canonical)){
       canonical.source_count=parts.length;canonical.updated_at=new Date().toISOString();
@@ -113,7 +167,7 @@ function refreshEventViews_() {
     }
   });
   rows.sort(function(a,b){return String(a[PIPE.UPCOMING_HEADERS.indexOf('start_date')]).localeCompare(String(b[PIPE.UPCOMING_HEADERS.indexOf('start_date')]));});
-  review.sort(function(a,b){return String(a.group_id).localeCompare(String(b.group_id)) || String(a.start_date).localeCompare(String(b.start_date));});
+  review.sort(function(a,b){return (a.priority==='High'?0:1)-(b.priority==='High'?0:1) || String(a.suggested_group_id||a.group_id).localeCompare(String(b.suggested_group_id||b.group_id)) || String(a.incoming_date).localeCompare(String(b.incoming_date));});
   writeView_(up,PIPE.UPCOMING_HEADERS,rows);
   writeView_(rev,PIPE.REVIEW_HEADERS,review.map(function(x){return PIPE.REVIEW_HEADERS.map(function(h){return x[h]||'';});}));
   console.log('Upcoming: '+rows.length+'; review: '+review.length);
