@@ -4,10 +4,53 @@ function blank_(v) {
   const x = String(v).trim();
   return /^(null|undefined|n\/a|unavailable|not provided|none)$/i.test(x) ? '' : x;
 }
+/** Date keys are ISO dates, validated against the real calendar. */
 function dateKey_(v) {
-  if (v instanceof Date && !isNaN(v.getTime())) return Utilities.formatDate(v, 'Asia/Karachi', 'yyyy-MM-dd');
+  if (v instanceof Date && !isNaN(v.getTime())) {
+    const k = Utilities.formatDate(v, 'Asia/Karachi', 'yyyy-MM-dd');
+    return validDateKey_(k) ? k : '';
+  }
   const x = blank_(v);
-  return /^\d{4}-\d{2}-\d{2}$/.test(x) ? x : '';
+  if (validDateKey_(x)) return x;
+  return '';
+}
+function validDateKey_(x) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(x)) return false;
+  const parts=x.split('-').map(Number);
+  if(parts[0]<2000 || parts[0]>2100) return false;
+  const d=new Date(Date.UTC(parts[0],parts[1]-1,parts[2]));
+  return d.getUTCFullYear()===parts[0] && d.getUTCMonth()+1===parts[1] && d.getUTCDate()===parts[2];
+}
+/** Return 24-hour clock text, including spreadsheet Date objects (1899 serial time). */
+function timeKey_(v) {
+  if(v instanceof Date && !isNaN(v.getTime())) return Utilities.formatDate(v,'Asia/Karachi','HH:mm');
+  if(typeof v==='number' && isFinite(v) && v>=0 && v<1) {
+    const minutes=Math.round(v*1440)%1440;
+    return ('0'+Math.floor(minutes/60)).slice(-2)+':'+('0'+(minutes%60)).slice(-2);
+  }
+  const x=blank_(v);
+  const m=x.match(/^([01]?\d|2[0-3]):([0-5]\d)(?::[0-5]\d)?$/);
+  return m ? ('0'+Number(m[1])).slice(-2)+':'+m[2] : '';
+}
+/** Native Google Sheets date/time values, not strings or 1899 display dates. */
+function nativeEventCell_(header,value) {
+  if(header==='start_date'||header==='end_date'||header==='existing_date'||header==='incoming_date') {
+    const d=dateKey_(value);
+    return d ? new Date(d+'T12:00:00+05:00') : '';
+  }
+  if(header==='start_time'||header==='end_time'||header==='existing_time'||header==='incoming_time') {
+    const t=timeKey_(value);
+    return t ? new Date('2000-01-01T'+t+':00+05:00') : '';
+  }
+  return serializeCell_(value);
+}
+function applyEventColumnFormats_(sheet,headers) {
+  headers.forEach(function(h,i) {
+    if(['start_date','end_date','existing_date','incoming_date'].indexOf(h)>=0)
+      sheet.getRange(2,i+1,Math.max(1,sheet.getMaxRows()-1),1).setNumberFormat('yyyy-mm-dd');
+    if(['start_time','end_time','existing_time','incoming_time'].indexOf(h)>=0)
+      sheet.getRange(2,i+1,Math.max(1,sheet.getMaxRows()-1),1).setNumberFormat('hh:mm');
+  });
 }
 function wordKey_(x) {
   return blank_(x).toLowerCase().replace(/&/g,' and ').replace(/[^a-z0-9\s]/g,' ')

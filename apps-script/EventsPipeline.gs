@@ -7,7 +7,7 @@ const PIPE = Object.freeze({
   RAW:'Events', UPCOMING:'Upcoming Events', REVIEW:'Event Review',
   META:['group_id','match_status','review_reason','suggested_group_id'],
   UPCOMING_HEADERS:['group_id'].concat(CONFIG.HEADERS.filter(function(x){return x!=='id' && x!=='status' && x!=='error';})).concat(['source_count','updated_at','manual_notes']),
-  REVIEW_HEADERS:['priority','action','issue','existing_title','incoming_title','existing_date','incoming_date','existing_time','incoming_time','existing_venue','incoming_venue','differences','existing_poster','incoming_poster','source_id','group_id','suggested_group_id']
+  REVIEW_HEADERS:['open_popup','priority','action','issue','existing_title','incoming_title','existing_date','incoming_date','existing_time','incoming_time','existing_venue','incoming_venue','differences','existing_poster','incoming_poster','source_id','group_id','suggested_group_id']
 });
 function table_(name, headings) {
   const ss = SpreadsheetApp.openById(getSettings_().spreadsheetId);
@@ -27,10 +27,10 @@ function setupPipeline_() {
   table_(PIPE.UPCOMING,PIPE.UPCOMING_HEADERS);
   const rev=reviewTable_();
   const col=PIPE.REVIEW_HEADERS.indexOf('action')+1;
-  rev.setFrozenRows(1);rev.setFrozenColumns(2);
+  rev.setFrozenRows(1);rev.setFrozenColumns(3);
   rev.getRange(1,1,1,PIPE.REVIEW_HEADERS.length).setFontWeight('bold');
   rev.getRange(2,1,Math.max(1,rev.getMaxRows()-1),PIPE.REVIEW_HEADERS.length).setWrap(true);
-  rev.setColumnWidth(3,290);rev.setColumnWidth(12,420);
+  rev.setColumnWidth(1,135);rev.setColumnWidth(4,290);rev.setColumnWidth(13,420);
   rev.setColumnWidth(2,160);
   const rule=SpreadsheetApp.newDataValidation().requireValueInList(['Merge suggested','Keep separate','Dismiss warning','Use source details'],true).setAllowInvalid(false).build();
   rev.getRange(2,col,Math.max(1,rev.getMaxRows()-1),1).setDataValidation(rule);
@@ -42,11 +42,14 @@ function reviewTable_() {
   if (!sh || !sh.getLastRow()) return table_(PIPE.REVIEW, PIPE.REVIEW_HEADERS);
   const existingHeaders=sh.getRange(1,1,1,sh.getLastColumn()).getValues()[0];
   if (PIPE.REVIEW_HEADERS.every(function(h,i){return existingHeaders[i]===h;})) return sh;
+  const former=PIPE.REVIEW_HEADERS.slice(1);
   const old=['source_id','group_id','suggested_group_id','title','start_date','venue','reason','action','poster_url'];
-  if (!old.every(function(h,i){return existingHeaders[i]===h;}))
-    throw new Error('Unknown Event Review columns. Back up the tab before migration.');
+  const wasFormer=former.every(function(h,i){return existingHeaders[i]===h;});
+  const wasOld=old.every(function(h,i){return existingHeaders[i]===h;});
+  if(!wasFormer && !wasOld) throw new Error('Unknown Event Review columns. Back up the tab before migration.');
   const previous=readObjects_(sh);
   const converted=previous.filter(function(r){return blank_(r.source_id);}).map(function(r){
+    if(wasFormer) return PIPE.REVIEW_HEADERS.map(function(h){return h==='open_popup'?'Select row → Events menu → Review selected event':(r[h]||'');});
     const values={priority:'',issue:r.reason,existing_title:'',existing_date:'',existing_time:'',existing_venue:'',
       incoming_title:r.title,incoming_date:r.start_date,incoming_time:'',incoming_venue:r.venue,
       differences:r.reason,action:r.action,existing_poster:'',incoming_poster:r.poster_url,
@@ -74,7 +77,7 @@ function reviewItem_(source, groupId, suggestion, reason, canonical, groups) {
   const urgent=/reschedul|date|time|venue|missing/i.test(reason);
   const isMismatch=!!(suggestion && groups[suggestion]);
   return {
-    priority:urgent?'High':'Normal',issue:reason,
+    open_popup:'Select row → Events menu → Review selected event',priority:urgent?'High':'Normal',issue:reason,
     existing_title:other.title||'',existing_date:other.start_date||'',existing_time:other.start_time||'',existing_venue:other.venue||'',
     incoming_title:source.title||'',incoming_date:source.start_date||'',incoming_time:source.start_time||'',incoming_venue:source.venue||'',
     differences:differences.join(' | ') || (isMismatch?'Compare source posters':'No field differences detected'),
@@ -85,12 +88,17 @@ function reviewItem_(source, groupId, suggestion, reason, canonical, groups) {
 function readObjects_(sheet) {
   if(sheet.getLastRow()<2)return [];
   const vals=sheet.getRange(1,1,sheet.getLastRow(),sheet.getLastColumn()).getValues();
-  return vals.slice(1).map(function(row,i){const x={_row:i+2};vals[0].forEach(function(h,j){x[h]=row[j];});return x;});
+  return vals.slice(1).map(function(row,i){const x={_row:i+2};vals[0].forEach(function(h,j){
+    x[h]=['start_date','end_date','existing_date','incoming_date'].indexOf(h)>=0 ? dateKey_(row[j]) :
+      ['start_time','end_time','existing_time','incoming_time'].indexOf(h)>=0 ? timeKey_(row[j]) : row[j];
+  });return x;});
 }
 function updateMeta_(sh,row,patch){const off=CONFIG.HEADERS.length+1;PIPE.META.forEach(function(h,i){if(Object.prototype.hasOwnProperty.call(patch,h))sh.getRange(row,off+i).setValue(patch[h]);});}
 function putRawEvents_(file, items) {
   setupPipeline_();
   const sh=ensureEventsSheet_();
+  SpreadsheetApp.openById(getSettings_().spreadsheetId).setSpreadsheetTimeZone('Asia/Karachi');
+  applyEventColumnFormats_(sh,CONFIG.HEADERS);
   // A retry after an interrupted write should never insert duplicate observations.
   const old=readObjects_(sh).filter(function(r){return r.original_image_file_id===file.getId() && r.status!==CONFIG.STATUS.ERROR;});
   if(old.length) {markProcessed_(file.getId());refreshEventViews_();return;}
@@ -99,7 +107,7 @@ function putRawEvents_(file, items) {
     const obj=buildEventRow_(file,e);
     obj.contact=normalizedContact_(e.contact);
     obj.start_date=dateKey_(e.start_date);obj.end_date=dateKey_(e.end_date);
-    return CONFIG.HEADERS.map(function(h){return serializeCell_(obj[h]);}).concat(['','','','']);
+    return CONFIG.HEADERS.map(function(h){return nativeEventCell_(h,obj[h]);}).concat(['','','','']);
   });
   sh.getRange(sh.getLastRow()+1,1,rows.length,rows[0].length).setValues(rows);
   markProcessed_(file.getId());
@@ -112,6 +120,7 @@ function refreshEventViews() {
 }
 function refreshEventViews_() {
   setupPipeline_();
+  SpreadsheetApp.openById(getSettings_().spreadsheetId).setSpreadsheetTimeZone('Asia/Karachi');
   const sh=ensureEventsSheet_(), up=table_(PIPE.UPCOMING,PIPE.UPCOMING_HEADERS), rev=reviewTable_();
   const existing=readObjects_(up), byId={};existing.forEach(function(x){byId[String(x.group_id)]=x;});
   const source=readObjects_(sh).filter(function(x){return x.status!==CONFIG.STATUS.ERROR && x.id;});
@@ -157,23 +166,24 @@ function refreshEventViews_() {
     parts.forEach(function(p){
       let why=blank_(p.review_reason);
       const conflict=conflicts.find(function(x){return x.p.id===p.id;});if(conflict)why=why?why+'; '+conflict.reason:conflict.reason;
-      if((!blank_(p.title)||!dateKey_(p.start_date)) && !why && p.match_status!=='manual')why='Missing title or date';
+      if((!blank_(canonical.title)||!dateKey_(canonical.start_date)) && !why && p.match_status!=='manual')why='Missing title or date';
       if(why && !isPast_(p) && p.match_status!=='separate' && p.match_status!=='manual')
         review.push(reviewItem_(p,gid,p.suggested_group_id,why,canonical,groups));
     });
     if(!isPast_(canonical)){
       canonical.source_count=parts.length;canonical.updated_at=new Date().toISOString();
-      rows.push(PIPE.UPCOMING_HEADERS.map(function(h){return serializeCell_(canonical[h]);}));
+      rows.push(PIPE.UPCOMING_HEADERS.map(function(h){return nativeEventCell_(h,canonical[h]);}));
     }
   });
   rows.sort(function(a,b){return String(a[PIPE.UPCOMING_HEADERS.indexOf('start_date')]).localeCompare(String(b[PIPE.UPCOMING_HEADERS.indexOf('start_date')]));});
   review.sort(function(a,b){return (a.priority==='High'?0:1)-(b.priority==='High'?0:1) || String(a.suggested_group_id||a.group_id).localeCompare(String(b.suggested_group_id||b.group_id)) || String(a.incoming_date).localeCompare(String(b.incoming_date));});
   writeView_(up,PIPE.UPCOMING_HEADERS,rows);
-  writeView_(rev,PIPE.REVIEW_HEADERS,review.map(function(x){return PIPE.REVIEW_HEADERS.map(function(h){return x[h]||'';});}));
+  writeView_(rev,PIPE.REVIEW_HEADERS,review.map(function(x){return PIPE.REVIEW_HEADERS.map(function(h){return nativeEventCell_(h,x[h]||'');});}));
   console.log('Upcoming: '+rows.length+'; review: '+review.length);
 }
 function writeView_(sh,headings,rows){
   if(sh.getLastRow()>1)sh.getRange(2,1,sh.getLastRow()-1,headings.length).clearContent();
+  applyEventColumnFormats_(sh,headings);
   if(rows.length)sh.getRange(2,1,rows.length,headings.length).setValues(rows);
 }
 
@@ -189,6 +199,5 @@ function installReviewTrigger_() {
 function onReviewEdit(e) {
   if(!e || !e.range || e.range.getSheet().getName()!==PIPE.REVIEW) return;
   if(e.range.getColumn()!==PIPE.REVIEW_HEADERS.indexOf('action')+1 || e.range.getRow()<=1) return;
-  if(!blank_(e.range.getValue())) return;
-  refreshEventViews();
+  if(!blank_(e.range.getValue())) refreshEventViews();
 }

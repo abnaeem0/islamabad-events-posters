@@ -6,6 +6,7 @@ function extractEventFromPoster_(blob, filename) {
     throw new Error('Unsupported image MIME type: ' + mimeType);
   }
 
+  const extractionToday = Utilities.formatDate(new Date(), 'Asia/Karachi', 'yyyy-MM-dd');
   const prompt = [
     'You extract public event information from event posters for an Islamabad events guide.',
     '',
@@ -13,9 +14,12 @@ function extractEventFromPoster_(blob, filename) {
     'Do not invent missing facts.',
     'The event is expected to be relevant to Islamabad, Pakistan, but do not use that expectation to fill missing venue/address details.',
     '',
-    'Date rules:',
-    '- Return dates as YYYY-MM-DD only when the year/date can be determined from the poster.',
-    '- If the year is not shown and cannot be safely established from the poster itself, return null and flag the field as uncertain.',
+    'Date rules (reference date '+ extractionToday + ' in Islamabad):',
+    '- Output full YYYY-MM-DD dates. Use the explicit poster year if given.',
+    '- If year is absent, assume the CURRENT calendar year. When processing in November/December and poster date is January/February, assume NEXT year.',
+    '- Do NOT push a past month to next year just because the poster was collected late. Historical posters are allowed.',
+    '- If a weekday is printed, check it agrees with the chosen date; if not, note uncertain date instead of silently changing facts.',
+    '- Never output 1899 dates. A poster saying Sunday 27 September at 7am is a September calendar date, not an 1899 timestamp.',
     '',
     'Time rules:',
     '- Return time as HH:MM in 24-hour format when clear.',
@@ -32,6 +36,7 @@ function extractEventFromPoster_(blob, filename) {
     '',
     'Contact rules: preserve every phone number, email, or other contact shown. Separate multiple contacts with semicolons.',
     'If a later poster explicitly announces a rescheduling or relocation, note it verbatim in extraction_notes.',
+    'Today in Islamabad: ' + Utilities.formatDate(new Date(),'Asia/Karachi','yyyy-MM-dd'),
     'Filename: ' + filename
   ].join('\n');
 
@@ -185,10 +190,10 @@ function normalizeExtraction_(x) {
 
   return {
     title: cleanNullable_(x.title),
-    start_date: cleanNullable_(x.start_date),
-    end_date: cleanNullable_(x.end_date),
-    start_time: cleanNullable_(x.start_time),
-    end_time: cleanNullable_(x.end_time),
+    start_date: dateKey_(x.start_date) || null,
+    end_date: dateKey_(x.end_date) || null,
+    start_time: timeKey_(x.start_time) || null,
+    end_time: timeKey_(x.end_time) || null,
     venue: cleanNullable_(x.venue),
     address: cleanNullable_(x.address),
     organizer: cleanNullable_(x.organizer),
