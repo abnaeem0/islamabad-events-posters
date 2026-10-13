@@ -27,13 +27,14 @@ function processInbox() {
   }
 
   try {
+    const startedAt=Date.now();
     const settings = getSettings_();
     const folder = DriveApp.getFolderById(settings.inboxFolderId);
     const files = folder.getFiles();
 
     let handled = 0;
 
-    while (files.hasNext() && handled < CONFIG.MAX_FILES_PER_RUN) {
+    while (files.hasNext() && handled < CONFIG.MAX_FILES_PER_RUN && Date.now()-startedAt<180000) {
       const file = files.next();
 
       if (!isSupportedImage_(file)) {
@@ -56,6 +57,10 @@ function processInbox() {
     }
 
     console.log('Inbox run finished. Attempted ' + handled + ' image(s).');
+    // Later runs continue pending companion checks even when there are no new uploads.
+    if(Date.now()-startedAt<240000){
+      try{processCompanions_(startedAt+270000);}catch(err){console.error('Companion checks deferred: '+err.message);}
+    }
   } finally {
     lock.releaseLock();
   }
@@ -63,15 +68,59 @@ function processInbox() {
 
 function processOneFile_(file) {
   const blob = file.getBlob();
+  const bytes=blob.getBytes();
 
-  if (blob.getBytes().length > CONFIG.MAX_IMAGE_BYTES) {
+  if (bytes.length > CONFIG.MAX_IMAGE_BYTES) {
     throw new Error('Image exceeds V1 size limit of ' + CONFIG.MAX_IMAGE_BYTES + ' bytes.');
   }
 
+  const hash=Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256,bytes).map(function(x){return ('0'+((x+256)%256).toString(16)).slice(-2);}).join('');
+  setupPipeline_();
+  const observations=readObjects_(ensureEventsSheet_()).filter(function(r){return r.id&&r.status!==CONFIG.STATUS.ERROR;});
+  const same=observations.filter(function(r){return companionClues_(r).image_hash===hash;});
+  if(same.length){
+    // Copy the first source file's observations once, retaining each event's disposition.
+    const originalId=same[0].original_image_file_id;
+    appendExactPosterCopy_(file,same.filter(function(r){return r.original_image_file_id===originalId;}),hash);
+    return;
+  }
+
   const extractions = extractEventFromPoster_(blob, file.getName());
+  // Legacy observations predate image hashes. Verify a few strong candidates by
+  // their original bytes so a copied old poster cannot reopen formatting conflicts.
+  const legacyIds=[];
+  observations.filter(function(r){return !companionClues_(r).image_hash&&r.original_image_file_id;}).forEach(function(r){
+    const plausible=extractions.some(function(e){return titleSimilarity_(e.title,r.title)>=0.8 || companionCandidate_(Object.assign({original_filename:file.getName(),original_image_file_id:file.getId()},e),r).eligible;});
+    if(plausible&&legacyIds.indexOf(r.original_image_file_id)<0&&legacyIds.length<3)legacyIds.push(r.original_image_file_id);
+  });
+  for(let i=0;i<legacyIds.length;i++){
+    try{
+      const oldBytes=DriveApp.getFileById(legacyIds[i]).getBlob().getBytes();
+      const oldHash=Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256,oldBytes).map(function(x){return ('0'+((x+256)%256).toString(16)).slice(-2);}).join('');
+      if(oldHash!==hash)continue;
+      const originals=observations.filter(function(r){return r.original_image_file_id===legacyIds[i];});
+      originals.forEach(function(r){const clues=companionClues_(r);clues.image_hash=hash;updateMeta_(ensureEventsSheet_(),r._row,{companion_clues:JSON.stringify(clues)});r.companion_clues=JSON.stringify(clues);});
+      appendExactPosterCopy_(file,originals,hash);return;
+    }catch(e){console.warn('Legacy poster fingerprint unavailable: '+e.message);}
+  }
+  extractions.forEach(function(e){e.companion_clues=e.companion_clues||{};e.companion_clues.image_hash=hash;});
   putRawEvents_(file, extractions);
 
   console.log('Processed: ' + file.getName());
+}
+
+function appendExactPosterCopy_(file,originals,hash){
+  const raw=ensureEventsSheet_();
+  if(readObjects_(raw).some(function(r){return r.original_image_file_id===file.getId()&&r.status!==CONFIG.STATUS.ERROR;})){markProcessed_(file.getId());refreshEventViews_();return;}
+  const rows=originals.map(function(original){
+    const r=Object.assign({},original,{id:makeEventId_(),original_image_file_id:file.getId(),original_image_url:file.getUrl(),original_filename:file.getName(),processed_at:new Date().toISOString(),error:''});
+    const clues=companionClues_(original);clues.image_hash=hash;r.companion_clues=JSON.stringify(clues);
+    return CONFIG.HEADERS.concat(PIPE.META).map(function(k){return nativeEventCell_(k,r[k]||'');});
+  });
+  if(rows.length)raw.getRange(raw.getLastRow()+1,1,rows.length,rows[0].length).setValues(rows);
+  markProcessed_(file.getId());refreshEventViews_();
+  const all=readObjects_(raw);
+  originals.filter(function(r){return r.match_status==='place';}).forEach(function(r){writeCanonicalPatch_(r.group_id,{source_count:all.filter(function(x){return x.group_id===r.group_id;}).length});});
 }
 
 /**

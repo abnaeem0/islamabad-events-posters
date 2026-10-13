@@ -86,7 +86,11 @@ function normalizePhones_(value) {
 function normalizedContact_(value) {
   const phones = normalizePhones_(value);
   const raw = blank_(Array.isArray(value) ? value.join(' ') : value);
-  if (phones.length) return JSON.stringify(phones);
+  if (phones.length) {
+    // Keep emails, landlines and contact notes alongside mobiles.
+    const rest=raw.replace(/(?:\+?92|0092|0)?[\s().-]*3\d{2}[\s().-]*\d{3}[\s().-]*\d{4}/g,' ').replace(/[\s\[\]{}"',;|:+().-]/g,'');
+    return rest ? raw : JSON.stringify(phones);
+  }
   return raw; // preserve emails, landlines and other non-mobile contact information
 }
 function isPast_(row) {

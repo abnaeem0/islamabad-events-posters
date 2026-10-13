@@ -10,7 +10,10 @@ function extractEventFromPoster_(blob, filename) {
   const prompt = [
     'You extract public event information from event posters for an Islamabad events guide.',
     '',
-    'Read this poster carefully. Return a separate item for each genuinely separate event. Multiple days of one event can remain one item. Extract only information supported by the image.',
+    'Read this screenshot carefully. It may advertise an event, an evergreen place/activity, or only one slide of a carousel. Return a separate item for each genuinely separate listing. Multiple days of one event can remain one item. Extract only information supported by the image.',
+    'For an address-only/contact-only slide, return a partial item with null missing fields; do not invent its event name or date. Preserve visible matching clues.',
+    'Set listing_kind to event, place, partial or unknown. A gym/riding club/attraction/day-trip destination without a specific dated session is a place; a dated session at that business is an event. Never fabricate dates for places.',
+    'Record visible_text (literal relevant text, maximum 3000 characters), visible Instagram handles, any event-specific booking link/reference, and visible carousel_index/carousel_total. Use null for absent carousel numbers. Do not confuse capture/upload dates with event dates.',
     'Do not invent missing facts.',
     'The event is expected to be relevant to Islamabad, Pakistan, but do not use that expectation to fill missing venue/address details.',
     '',
@@ -62,61 +65,11 @@ function extractEventFromPoster_(blob, filename) {
     }
   };
 
-  const url = CONFIG.API_BASE +
-    encodeURIComponent(settings.model) +
-    ':generateContent';
-
-  const response = UrlFetchApp.fetch(url, {
-    method: 'post',
-    contentType: 'application/json',
-    headers: {
-      'x-goog-api-key': settings.apiKey
-    },
-    payload: JSON.stringify(payload),
-    muteHttpExceptions: true
-  });
-
-  const code = response.getResponseCode();
-  const body = response.getContentText();
-
-  if (code < 200 || code >= 300) {
-    throw new Error('Gemini HTTP ' + code + ': ' + truncate_(body, 1000));
-  }
-
-  let envelope;
-  try {
-    envelope = JSON.parse(body);
-  } catch (err) {
-    throw new Error('Gemini returned invalid response JSON.');
-  }
-
-  const candidate = envelope.candidates && envelope.candidates[0];
-  const parts = candidate && candidate.content && candidate.content.parts;
-
-  if (!parts || !parts.length) {
-    const reason = candidate && candidate.finishReason
-      ? ' Finish reason: ' + candidate.finishReason
-      : '';
-    throw new Error('Gemini returned no usable content.' + reason);
-  }
-
-  const textPart = parts.find(function(part) {
-    return typeof part.text === 'string';
-  });
-
-  if (!textPart) {
-    throw new Error('Gemini response contained no text JSON.');
-  }
-
-  let result;
-  try {
-    result = JSON.parse(textPart.text);
-  } catch (err) {
-    throw new Error('Could not parse Gemini structured output: ' + truncate_(textPart.text, 1000));
-  }
+  const response=geminiRequest_(settings.model,payload);
+  const result=parseGeminiJson_(response.text);
 
   if (!result || !Array.isArray(result.events)) throw new Error('Gemini did not return events array');
-  return result.events.map(normalizeExtraction_).filter(function(e){return e.title || e.start_date || e.venue;});
+  return result.events.map(normalizeExtraction_).filter(function(e){return e.title || e.start_date || e.venue || e.address || e.contact || e.source_account || e.companion_clues.visible_text;});
 }
 
 function getGeminiResponseSchema_() {
@@ -130,6 +83,13 @@ function getSingleEventSchema_() {
   return {
     type: 'OBJECT',
     properties: {
+      listing_kind:{type:'STRING',enum:['event','place','partial','unknown']},
+      place_type:{type:'STRING',enum:['activity','attraction','day_trip','restaurant']},
+      visible_text:{type:'STRING',nullable:true},
+      visible_handles:{type:'ARRAY',items:{type:'STRING'}},
+      booking_reference:{type:'STRING',nullable:true},
+      carousel_index:{type:'INTEGER',nullable:true},
+      carousel_total:{type:'INTEGER',nullable:true},
       title: { type: 'STRING', nullable: true },
       start_date: { type: 'STRING', nullable: true },
       end_date: { type: 'STRING', nullable: true },
@@ -159,6 +119,7 @@ function getSingleEventSchema_() {
       extraction_notes: { type: 'STRING', nullable: true }
     },
     required: [
+      'listing_kind','place_type','visible_text','visible_handles','booking_reference','carousel_index','carousel_total',
       'title',
       'start_date',
       'end_date',
@@ -189,6 +150,14 @@ function normalizeExtraction_(x) {
     : 'low';
 
   return {
+    companion_clues:{
+      listing_kind:['event','place','partial','unknown'].indexOf(x.listing_kind)>=0?x.listing_kind:'unknown',
+      place_type:['activity','attraction','day_trip','restaurant'].indexOf(x.place_type)>=0?x.place_type:'activity',
+      visible_text:truncate_(cleanNullable_(x.visible_text)||'',3000),
+      visible_handles:cleanArray_(x.visible_handles),booking_reference:cleanNullable_(x.booking_reference),
+      carousel_index:Number.isInteger(x.carousel_index)&&x.carousel_index>0?x.carousel_index:null,
+      carousel_total:Number.isInteger(x.carousel_total)&&x.carousel_total>0?x.carousel_total:null
+    },
     title: cleanNullable_(x.title),
     start_date: dateKey_(x.start_date) || null,
     end_date: dateKey_(x.end_date) || null,
@@ -208,4 +177,24 @@ function normalizeExtraction_(x) {
     uncertain_fields: cleanArray_(x.uncertain_fields),
     extraction_notes: cleanNullable_(x.extraction_notes)
   };
+}
+
+/** Shared HTTP wrapper; no quota retry or paid-model fallback. */
+function geminiRequest_(model,payload){
+  const settings=getSettings_();
+  const response=UrlFetchApp.fetch(CONFIG.API_BASE+encodeURIComponent(model)+':generateContent',{
+    method:'post',contentType:'application/json',headers:{'x-goog-api-key':settings.apiKey},payload:JSON.stringify(payload),muteHttpExceptions:true
+  });
+  const code=response.getResponseCode(),body=response.getContentText();
+  if(code<200||code>=300)throw new Error('Gemini HTTP '+code+': '+truncate_(body,700));
+  let envelope;try{envelope=JSON.parse(body);}catch(e){throw new Error('Gemini returned invalid response JSON.');}
+  const candidate=envelope.candidates&&envelope.candidates[0];
+  const parts=candidate&&candidate.content&&candidate.content.parts||[];
+  const text=parts.filter(function(p){return typeof p.text==='string'&&!p.thought;}).map(function(p){return p.text;}).join('\n');
+  if(!text)throw new Error('Gemini returned no usable text.');
+  return {text:text,candidate:candidate,usage:envelope.usageMetadata||{}};
+}
+function parseGeminiJson_(text){
+  const clean=String(text).trim().replace(/^```(?:json)?\s*/i,'').replace(/\s*```$/,'');
+  try{return JSON.parse(clean);}catch(e){throw new Error('Gemini output could not be parsed as JSON.');}
 }

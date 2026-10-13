@@ -1,5 +1,12 @@
 /** Pure matching policy: change here without touching Sheets or Gemini. */
 function matchCandidate_(incoming, existing) {
+  // Exact details can identify duplicates even when a venue is missing.
+  // Without a date, require the same Drive file: generic recurring activities
+  // on unrelated posters must not collapse into one event.
+  if(eventDetailsEqual_(incoming,existing) &&
+     ((blank_(incoming.title) && dateKey_(incoming.start_date)) ||
+      (blank_(incoming.original_image_file_id) && incoming.original_image_file_id===existing.original_image_file_id)))
+    return {type:'merge',score:1,reason:'Identical event details'};
   if (!dateKey_(incoming.start_date) || !dateKey_(existing.start_date)) return {type:'none', score:0};
   const title = titleSimilarity_(incoming.title, existing.title);
   if (title < 0.63) return {type:'none', score:title};
@@ -19,8 +26,24 @@ function matchCandidate_(incoming, existing) {
   if (title >= 0.80) return {type:'review',score:title,reason:'Same date, venue or title differs'};
   return {type:'none',score:0};
 }
+/** Compare extracted event facts, not model confidence or processing metadata. */
+function eventDetailsEqual_(a,b){
+  return eventFields_().filter(function(k){return k!=='source_account';}).every(function(k){
+    return eventDetailKey_(k,a[k])===eventDetailKey_(k,b[k]);
+  });
+}
+function eventDetailKey_(key,value){
+  if(/_date$/.test(key))return dateKey_(value);
+  if(/_time$/.test(key))return timeKey_(value);
+  const text=blank_(value).normalize('NFKC').toLowerCase().replace(/\s+/g,' ').trim();
+  if(key==='contact'||key==='categories'){
+    try{const items=Array.isArray(value)?value:JSON.parse(text);if(Array.isArray(items))return JSON.stringify(items.map(function(x){return blank_(x).toLowerCase().replace(/\s+/g,' ').trim();}).sort());}catch(e){}
+  }
+  return text;
+}
 function conflictingFields_(base, add) {
-  return ['start_date','start_time','venue','price','end_date'].filter(function(k) {
+  return eventFields_().filter(function(k) {
+    if(k==='source_account')return false;
     const a = blank_(base[k]), b = blank_(add[k]);
     return a && b && wordKey_(a) !== wordKey_(b);
   });
