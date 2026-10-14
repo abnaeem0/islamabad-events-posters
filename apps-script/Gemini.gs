@@ -1,4 +1,4 @@
-function extractEventFromPoster_(blob, filename) {
+function extractEventFromPoster_(blob, filename, companionBlobs) {
   const settings = getSettings_();
   const mimeType = blob.getContentType();
 
@@ -14,6 +14,7 @@ function extractEventFromPoster_(blob, filename) {
     'For an address-only/contact-only slide, return a partial item with null missing fields; do not invent its event name or date. Preserve visible matching clues.',
     'Set listing_kind to event, place, partial or unknown. A gym/riding club/attraction/day-trip destination without a specific dated session is a place; a dated session at that business is an event. Never fabricate dates for places.',
     'Record visible_text (literal relevant text, maximum 3000 characters), visible Instagram handles, any event-specific booking link/reference, and visible carousel_index/carousel_total. Use null for absent carousel numbers. Do not confuse capture/upload dates with event dates.',
+    'When several screenshots are supplied, read them as one confirmed post. Return EVERY distinct workshop/event, even when the images share design or venue. An overview slide and detail slide for the same session are one item. Apply a clearly shared venue/address/contact to all relevant workshops unless separate locations are shown. Preserve distinct dates, times, prices and titles. Missing fields stay null.',
     'Do not invent missing facts.',
     'The event is expected to be relevant to Islamabad, Pakistan, but do not use that expectation to fill missing venue/address details.',
     '',
@@ -65,6 +66,7 @@ function extractEventFromPoster_(blob, filename) {
     }
   };
 
+  (companionBlobs||[]).forEach(function(extra){if(CONFIG.SUPPORTED_MIME_TYPES.indexOf(extra.getContentType())<0)throw new Error('Unsupported image MIME type');payload.contents[0].parts.push({inlineData:{mimeType:extra.getContentType(),data:Utilities.base64Encode(extra.getBytes())}});});
   const response=geminiRequest_(settings.model,payload);
   const result=parseGeminiJson_(response.text);
 

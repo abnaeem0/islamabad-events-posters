@@ -7,6 +7,8 @@ function matchCandidate_(incoming, existing) {
      ((blank_(incoming.title) && dateKey_(incoming.start_date)) ||
       (blank_(incoming.original_image_file_id) && incoming.original_image_file_id===existing.original_image_file_id)))
     return {type:'merge',score:1,reason:'Identical event details'};
+  // Distinct extracted listings on one poster are not companion slides.
+  if(incoming.original_image_file_id && incoming.original_image_file_id===existing.original_image_file_id)return {type:'none',score:0};
   if (!dateKey_(incoming.start_date) || !dateKey_(existing.start_date)) return {type:'none', score:0};
   const title = titleSimilarity_(incoming.title, existing.title);
   if (title < 0.63) return {type:'none', score:title};

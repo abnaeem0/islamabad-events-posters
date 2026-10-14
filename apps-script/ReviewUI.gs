@@ -5,6 +5,10 @@ const VISUAL_FIELDS=['title','start_date','end_date','start_time','end_time','ve
 function onOpen() {
   SpreadsheetApp.getUi().createMenu('Events')
     .addItem('Review selected event', 'openVisualReview')
+    .addItem('Move selected to Places & Activities', 'openBulkMove')
+    .addItem('Copy selected to Places & Activities', 'openBulkCopy')
+    .addItem('Move selected back to Events', 'openBulkReturn')
+    .addItem('Set selected venue / address', 'openBulkLocation')
     .addItem('Check companion screenshots now', 'processCompanions')
     .addItem('Refresh event views', 'refreshEventViews')
     .addItem('Fix date and time display', 'fixEventDateTimeDisplay')
@@ -54,10 +58,12 @@ function vrImage_(id) {
   } catch(e){return '';}
 }
 /** Load privately through Apps Script; originals do not need public Drive sharing. */
-function getVisualPoster(sourceId){
+function getVisualPoster(sourceId,fileId){
   const source=vrRows_('Events').find(r=>String(r.id)===String(sourceId));
   if(!source)throw new Error('Poster source no longer exists.');
-  return {image:vrImage_(source.original_image_file_id),link:String(source.original_image_url||'')};
+  const attached=(companionClues_(source).source_images||[]).find(x=>String(x.fileId)===String(fileId));
+  if(fileId&&String(fileId)!==String(source.original_image_file_id)&&!attached)throw new Error('Image is not linked to this source.');
+  return {image:vrImage_(attached?attached.fileId:source.original_image_file_id),link:String(attached?attached.link:source.original_image_url||'')};
 }
 function fixEventDateTimeDisplay(){
   const ss=SpreadsheetApp.getActiveSpreadsheet();ss.setSpreadsheetTimeZone('Asia/Karachi');
@@ -76,7 +82,8 @@ function openVisualReview(){
   const template=HtmlService.createTemplateFromFile('ReviewDialog');
   const heads=sh.getRange(1,1,1,sh.getLastColumn()).getValues()[0];
   const values=sh.getRange(row,1,1,heads.length).getValues()[0];
-  template.context=JSON.stringify({mode:sh.getName()==='Event Review'?'review':sh.getName()==='Places & Activities'?'place':'edit',
+  const queue=vrRows_(sh.getName()).filter(r=>r.group_id).map(r=>({mode:sh.getName()==='Event Review'?'review':sh.getName()==='Places & Activities'?'place':'edit',sourceId:String(r.source_id||''),groupId:String(r.group_id||'')}));
+  template.context=JSON.stringify({queue,mode:sh.getName()==='Event Review'?'review':sh.getName()==='Places & Activities'?'place':'edit',
     sourceId:String(values[heads.indexOf('source_id')]||''),groupId:String(values[heads.indexOf('group_id')]||'')});
   SpreadsheetApp.getUi().showModalDialog(template.evaluate().setWidth(1160).setHeight(760),'Review event');
 }
@@ -108,6 +115,8 @@ function getVisualReviewData(context){
   const existingSource=sources.find(r=>String(r.original_image_file_id)===String(current.original_image_file_id)&&String(r.group_id)===String(current.group_id))||sources.find(r=>String(r.group_id)===String(current.group_id))||current;
   const fields=(x)=>{const obj={};VISUAL_FIELDS.forEach(k=>obj[k]=vrString_(x&&x[k],k));return obj;};
   return {
+    singleView:editing || (!event.suggested_group_id && /^Missing /.test(String(event.issue||''))),
+    sharedVenueTargets:sharedVenueTargets_(source,current),
     mode:context.mode,sourceId:source&&String(source.id)||'',
     groupId:editing?String(event.group_id):String(event.group_id||''),placeType:String(current.place_type||'activity'),
     suggestedGroupId:context.mode==='review'?String(event.suggested_group_id||''):'',
@@ -121,7 +130,7 @@ function getVisualReviewData(context){
     extractionNotes:String(source&&source.extraction_notes||''),reviewVersion:visualVersion_(current),
     companionDraft:context.mode==='review'?companionDraftForSource_(source&&source.id,event.suggested_group_id||event.group_id):null,
     sources:sources.filter(r=>r.status!==CONFIG.STATUS.ERROR&&[String(current.group_id),String(source&&source.group_id)].includes(String(r.group_id)))
-      .map(r=>({id:String(r.id),fileId:String(r.original_image_file_id||''),link:String(r.original_image_url||''),label:String(r.original_filename||r.title||r.id)}))
+      .reduce((list,r)=>list.concat([{id:String(r.id),fileId:String(r.original_image_file_id||''),link:String(r.original_image_url||''),label:String(r.original_filename||r.title||r.id)}],(companionClues_(r).source_images||[]).map(x=>({id:String(r.id),fileId:x.fileId,link:x.link,label:x.label}))),[])
   };
 }
 function vrUpdateRow_(tab, rowNumber, updates){
@@ -160,14 +169,15 @@ function saveVisualDecision(payload){
     const sheet=SpreadsheetApp.getActiveSpreadsheet();
     const source=vrRows_('Events').find(r=>String(r.id)===String(payload.sourceId));
     const action=String(payload.action||'edit');
-    if(!['edit','merge','separate','dismiss','duplicate','not_local','place'].includes(action))throw new Error('Unknown decision.');
-    if(payload.reviewVersion&&!['duplicate','not_local','separate'].includes(action)&&!(action==='place'&&payload.suggestedGroupId)){
-      const current=canonicalObjects_()[String(payload.suggestedGroupId||payload.groupId)]||source;
+    if(action==='return_event'){const place=vrRows_(PIPE.PLACES).find(r=>String(r.group_id)===String(payload.groupId));if(payload.mode!=='place'||!place)throw new Error('Select a saved place first.');if(payload.reviewVersion&&visualVersion_(place)!==payload.reviewVersion)throw new Error('This entry changed. Reopen it before restoring.');restorePlaceToEvent_(String(payload.groupId));refreshEventViews_();fixEventDateTimeDisplay();return {ok:true,destination:'Events'};}
+    if(!['edit','merge','separate','dismiss','duplicate','not_local','place','copy_place'].includes(action))throw new Error('Unknown decision.');
+    if(payload.reviewVersion&&!['duplicate','not_local','separate'].includes(action)&&!(['place','copy_place'].includes(action)&&payload.suggestedGroupId)){
+      const current=(payload.mode==='place'?vrRows_(PIPE.PLACES).find(r=>String(r.group_id)===String(payload.groupId)):canonicalObjects_()[String(payload.suggestedGroupId||payload.groupId)])||source;
       if(visualVersion_(current)!==payload.reviewVersion)throw new Error('This listing changed while the dialog was open. Close and reopen it to keep the latest information.');
     }
     // Validate all edited values before changing match metadata or adding any row.
     const updated={manual_notes:'Manually reviewed '+new Date().toISOString()};
-    VISUAL_FIELDS.filter(k=>action!=='not_local' && !((action==='place'||payload.mode==='place') && /_(date|time)$/.test(k))).forEach(k=>{
+    VISUAL_FIELDS.filter(k=>action!=='not_local' && !((action==='place'||action==='copy_place'||payload.mode==='place') && /_(date|time)$/.test(k))).forEach(k=>{
       if(Object.prototype.hasOwnProperty.call(payload.fields||{},k))updated[k]=vrNative_(k,payload.fields[k]);
     });
     if(action!=='not_local'&&action!=='duplicate'){
@@ -180,13 +190,13 @@ function saveVisualDecision(payload){
       const pending=vrRows_('Event Review').find(r=>String(r.source_id)===String(payload.sourceId));
       if(!pending)throw new Error('This item was already reviewed. Close and reopen the event.');
       if(String(pending.group_id||'')!==String(payload.groupId||'') || String(pending.suggested_group_id||'')!==String(payload.suggestedGroupId||''))throw new Error('This match changed. Close and reopen the event.');
-      if(pending.suggested_group_id&&!['merge','separate','duplicate','not_local','place'].includes(action))throw new Error('Choose a decision for this match.');
+      if(pending.suggested_group_id&&!['merge','separate','duplicate','not_local','place','copy_place'].includes(action))throw new Error('Choose a decision for this match.');
     }
     let groupId=String(payload.groupId||'');
-    if(action==='not_local'||action==='place'||payload.mode==='place'){
+    if(action==='not_local'||action==='place'||action==='copy_place'||payload.mode==='place'){
       if(!source||!groupId||String(source.group_id)!==groupId)throw new Error('This record changed. Close and reopen it.');
       const type=String(payload.placeType||'activity');
-      if(action!=='not_local'&&!['activity','attraction','day_trip','restaurant'].includes(type))throw new Error('Choose a valid place type.');
+      if(action!=='not_local'&&!['activity','experience','course','recurring_event','attraction','day_trip','restaurant'].includes(type))throw new Error('Choose a valid place type.');
       const placeSheet=table_(PIPE.PLACES,PIPE.PLACE_HEADERS);
       const place=vrRows_(PIPE.PLACES).find(r=>String(r.group_id)===groupId);
       if(action==='not_local'){
@@ -195,13 +205,14 @@ function saveVisualDecision(payload){
       }else{
         // For a proposed match, save this incoming group, not the suggested original event.
         const canonical=payload.mode==='review'&&payload.suggestedGroupId?source:
-          visualEventRows_().find(r=>String(r.group_id)===groupId)||place||source;
-        const record=Object.assign({},canonical,updated,{group_id:groupId,place_type:type,saved_at:new Date().toISOString()});
+          (payload.mode==='place'?place:visualEventRows_().find(r=>String(r.group_id)===groupId))||place||source;
+        const snapshot=place&&place.event_snapshot?{event_snapshot:place.event_snapshot,source_states:place.source_states}:captureEventSnapshot_(groupId);
+        const record=Object.assign({},canonical,updated,snapshot,{group_id:groupId,place_type:type,saved_at:new Date().toISOString()});
         if(payload.posterChoice==='incoming')['original_image_file_id','original_image_url','original_filename'].forEach(k=>record[k]=source[k]||'');
         const related=vrRows_('Events').filter(r=>String(r.group_id)===groupId);
         record.source_count=related.length;
         placeSheet.getRange(place?place._row:placeSheet.getLastRow()+1,1,1,PIPE.PLACE_HEADERS.length).setValues([PIPE.PLACE_HEADERS.map(k=>nativeEventCell_(k,record[k]||''))]);
-        related.forEach(r=>vrUpdateRow_('Events',r._row,{match_status:'place',review_reason:'',suggested_group_id:''}));
+        if(action==='place')related.forEach(r=>vrUpdateRow_('Events',r._row,{match_status:'place',review_reason:'',suggested_group_id:''}));
       }
       refreshEventViews_();fixEventDateTimeDisplay();
       return {ok:true,groupId,destination:action==='not_local'?'excluded':PIPE.PLACES};
@@ -245,9 +256,30 @@ function saveVisualDecision(payload){
       const row=vrRows_('Event Review').find(r=>String(r.source_id)===String(payload.sourceId));
       if(row)rev.deleteRow(row._row);
     }
+    if(payload.applySharedVenue && !['duplicate','not_local','place','copy_place'].includes(action))applySharedVenue_(source,payload.sharedVenueIds||[],updated);
     // Rebuild under the same script lock used by the collector; remove provisional duplicates.
     refreshEventViews_();
     fixEventDateTimeDisplay();
     return {ok:true,groupId};
   }finally{lock.releaseLock();}
+}
+
+/** Only copy confirmed location fields to chosen, still-missing siblings. */
+function sharedVenueTargets_(source,current){
+  if(!source||!source.original_image_file_id)return [];
+  const canon=visualEventRows_(),seen={};
+  return vrRows_(PIPE.RAW).filter(r=>{
+    if(r.original_image_file_id!==source.original_image_file_id||r.status===CONFIG.STATUS.REJECTED||r.match_status==='place'||String(r.group_id)===String(current.group_id)||seen[r.group_id])return false;
+    const c=canon.find(x=>String(x.group_id)===String(r.group_id))||r;
+    if(blank_(c.venue)||r.suggested_group_id||r.review_reason)return false;seen[r.group_id]=true;return true;
+  }).map(r=>({groupId:String(r.group_id),title:String(r.title||'Unnamed workshop')}));
+}
+function applySharedVenue_(source,ids,updated){
+  if(!source||!blank_(updated.venue)||!Array.isArray(ids))return;
+  const allowed=sharedVenueTargets_(source,{group_id:source.group_id});
+  const patch={venue:updated.venue};if(blank_(updated.address))patch.address=updated.address;
+  ids.filter(id=>allowed.some(r=>r.groupId===String(id))).forEach(id=>{
+    writeCanonicalPatch_(id,patch);
+    // Keep raw extraction immutable; the durable canonical row stores this correction.
+  });
 }

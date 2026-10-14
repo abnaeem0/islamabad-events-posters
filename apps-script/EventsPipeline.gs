@@ -8,7 +8,7 @@ const PIPE = Object.freeze({
   META:['group_id','match_status','review_reason','suggested_group_id','companion_clues'],
   UPCOMING_HEADERS:['group_id'].concat(CONFIG.HEADERS.filter(function(x){return x!=='id' && x!=='status' && x!=='error';})).concat(['source_count','updated_at','manual_notes','publication_status','research_sources']),
   REVIEW_HEADERS:['open_popup','priority','action','issue','existing_title','incoming_title','existing_date','incoming_date','existing_time','incoming_time','existing_venue','incoming_venue','differences','existing_poster','incoming_poster','source_id','group_id','suggested_group_id'],
-  PLACE_HEADERS:['group_id','place_type'].concat(CONFIG.HEADERS.filter(function(x){return ['id','status','error','start_date','end_date','start_time','end_time'].indexOf(x)<0;})).concat(['source_count','saved_at','manual_notes','research_sources'])
+  PLACE_HEADERS:['group_id','place_type'].concat(CONFIG.HEADERS.filter(function(x){return ['id','status','error','start_date','end_date','start_time','end_time'].indexOf(x)<0;})).concat(['source_count','saved_at','manual_notes','research_sources','event_snapshot','source_states'])
 });
 function table_(name, headings) {
   const ss = SpreadsheetApp.openById(getSettings_().spreadsheetId);
@@ -228,22 +228,33 @@ function refreshEventViews_() {
       if(p!==parts[0] && !p.suggested_group_id && eventDetailsEqual_(canonical,p))return;
       let why=blank_(p.review_reason);
       const conflict=conflicts.find(function(x){return x.p.id===p.id;});if(conflict)why=why?why+'; '+conflict.reason:conflict.reason;
-      if((!blank_(canonical.title)||!dateKey_(canonical.start_date)||!blank_(canonical.venue)) && !why)why='Missing title, date or venue';
+      const missing=[];if(!blank_(canonical.title))missing.push('title');if(!dateKey_(canonical.start_date))missing.push('date');if(!blank_(canonical.venue))missing.push('venue');
+      if(missing.length && !why)why='Missing '+missing.join(', ');
       const uncertainty=blank_(p.uncertain_fields);
       if(!why && (p.confidence==='low'||(uncertainty && uncertainty!=='[]')) && ['manual','separate','companion'].indexOf(p.match_status)<0)why='Uncertain extraction: '+(uncertainty||'low confidence');
       if(why && p===parts[0])holdNew=true;
       if(why && !isPast_(p) && (['separate','manual','companion'].indexOf(p.match_status)<0 || (p===parts[0]&&p.match_status==='companion'&&/^Missing /.test(why))))
         review.push(reviewItem_(p,gid,p.suggested_group_id,why,canonical,groups,byId));
     });
-    canonical.source_count=parts.length;canonical.updated_at=new Date().toISOString();
+    const imageIds=new Set();parts.forEach(p=>{if(p.original_image_file_id)imageIds.add(p.original_image_file_id);(companionClues_(p).source_images||[]).forEach(x=>imageIds.add(x.fileId));});canonical.source_count=imageIds.size||parts.length;canonical.updated_at=new Date().toISOString();
     canonical.publication_status=holdNew?'held':'ready';
     const recordRow=PIPE.UPCOMING_HEADERS.map(function(h){return nativeEventCell_(h,canonical[h]);});
     recordRows.push(recordRow);
     if(!isPast_(canonical))rows.push(recordRow);
   });
   rows.sort(function(a,b){const i=PIPE.UPCOMING_HEADERS.indexOf('start_date');return (dateKey_(a[i])||'9999-12-31').localeCompare(dateKey_(b[i])||'9999-12-31');});
+  // One shared venue task per original poster; every workshop remains a separate record.
+  const sharedVenue={};
+  for(let i=review.length-1;i>=0;i--){const item=review[i],src=allSource.find(x=>String(x.id)===String(item.source_id));
+    if(item.issue!=='Missing venue'||item.suggested_group_id||!src||!src.original_image_file_id)continue;
+    const key=String(src.original_image_file_id);
+    if(sharedVenue[key]){sharedVenue[key].count++;review.splice(i,1);}else sharedVenue[key]={item:item,count:1};
+  }
+  Object.keys(sharedVenue).forEach(key=>{const task=sharedVenue[key];if(task.count>1){task.item.issue='Missing shared venue — '+task.count+' workshops on this poster';task.item.differences='Set the venue once for selected workshops; listings remain separate';}});
   review.sort(function(a,b){return (a.priority==='High'?0:1)-(b.priority==='High'?0:1) || String(a.suggested_group_id||a.group_id).localeCompare(String(b.suggested_group_id||b.group_id)) || String(a.incoming_date).localeCompare(String(b.incoming_date));});
   writeView_(up,PIPE.UPCOMING_HEADERS,rows);
+  // Moved events remain durable even while absent from active event views.
+  const retained=new Set(recordRows.map(r=>String(r[0])));existing.forEach(r=>{if(inactiveGroups[String(r.group_id)]&&!excludedGroups[String(r.group_id)]&&!retained.has(String(r.group_id))){retained.add(String(r.group_id));recordRows.push(PIPE.UPCOMING_HEADERS.map(k=>nativeEventCell_(k,r[k])));}});
   writeView_(records,PIPE.UPCOMING_HEADERS,recordRows);
   writeView_(rev,PIPE.REVIEW_HEADERS,review.map(function(x){return PIPE.REVIEW_HEADERS.map(function(h){return nativeEventCell_(h,x[h]||'');});}));
   console.log('Upcoming: '+rows.length+'; review: '+review.length);

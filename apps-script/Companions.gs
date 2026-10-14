@@ -47,7 +47,7 @@ function companionCandidate_(a,b){
 }
 function companionPairKey_(a,b){return digestKey_(JSON.stringify([a,b].sort(function(x,y){return String(x.id).localeCompare(String(y.id));}).map(function(r){return {id:r.id,file:r.original_image_file_id,facts:eventFields_().map(function(k){return eventDetailKey_(k,r[k]);}),clues:companionClues_(r)};})));}
 function canonicalObjects_(){
-  const byId={};[PIPE.RECORDS,PIPE.UPCOMING,PIPE.PLACES].forEach(function(name){const sh=SpreadsheetApp.openById(getSettings_().spreadsheetId).getSheetByName(name);if(sh)readObjects_(sh).forEach(function(r){byId[String(r.group_id)]=r;});});return byId;
+  const byId={};[PIPE.RECORDS,PIPE.UPCOMING,PIPE.PLACES].forEach(function(name){const sh=SpreadsheetApp.openById(getSettings_().spreadsheetId).getSheetByName(name);if(sh)readObjects_(sh).forEach(function(r){if(name!==PIPE.PLACES||!byId[String(r.group_id)])byId[String(r.group_id)]=r;});});return byId;
 }
 function writeCanonicalPatch_(groupId,patch){
   const ss=SpreadsheetApp.openById(getSettings_().spreadsheetId);
@@ -80,14 +80,24 @@ function processCompanions_(deadline){
   const cursor=Math.max(0,Number(props.getProperty('COMPANION_SCAN_CURSOR'))||0),recent=sources.slice(-half);
   for(let n=0;n<Math.min(half,backlog.length);n++)recent.push(backlog[(cursor+n)%backlog.length]);
   if(backlog.length)props.setProperty('COMPANION_SCAN_CURSOR',String((cursor+half)%backlog.length));
+  const fileOrder=[];sources.forEach(r=>{if(r.original_image_file_id&&!fileOrder.includes(r.original_image_file_id))fileOrder.push(r.original_image_file_id);});
+  fileOrder.sort((x,y)=>{const a=sources.find(r=>r.original_image_file_id===x),b=sources.find(r=>r.original_image_file_id===y);return (screenshotMoment_(a)||new Date(a.processed_at).getTime()||a._row)-(screenshotMoment_(b)||new Date(b.processed_at).getTime()||b._row);});
   const seen={},pairs=[];
   recent.forEach(function(a){sources.forEach(function(b){
-    if(a.id===b.id||(!a.original_image_file_id)||(!b.original_image_file_id))return;
+    if(a.id===b.id||(!a.original_image_file_id)||(!b.original_image_file_id)||a.original_image_file_id===b.original_image_file_id)return;
     const resolved=function(r){return ['manual','separate','place','companion'].indexOf(r.match_status)>=0;};
     if(resolved(a)&&resolved(b))return;
     const base=resolved(a)?a:resolved(b)?b:a._row<b._row?a:b,incoming=base===a?b:a;
     if(base.group_id===incoming.group_id&&eventDetailsEqual_(base,incoming))return;
-    const candidate=companionCandidate_(base,incoming);if(!candidate.eligible)return;
+    const distance=Math.abs(fileOrder.indexOf(base.original_image_file_id)-fileOrder.indexOf(incoming.original_image_file_id));
+    if(distance>3)return;
+    const candidate=companionCandidate_(base,incoming);
+    // Neighbouring raw images can be checked even when their extracted titles differ.
+    if(!candidate.eligible){const ta=screenshotMoment_(base),tb=screenshotMoment_(incoming);
+      const close=ta!==null&&tb!==null&&Math.abs(ta-tb)<=10*60*1000;
+      const incomplete=!dateKey_(base.start_date)||!dateKey_(incoming.start_date)||!blank_(base.venue)||!blank_(incoming.venue);
+      if(!close||!incomplete)return;candidate.eligible=true;candidate.score=0.5;candidate.strong=true;
+    }
     const key=companionPairKey_(base,incoming);if(seen[key])return;seen[key]=true;
     const old=done[key];
     if(old&&!(old.outcome==='error'&&Date.now()-new Date(old.checked_at).getTime()>24*3600000))return;
@@ -143,6 +153,7 @@ function checkCompanionImages_(a,b,all,canonical){
 }
 function applyCompanionResult_(a,b,result,policy){
   if(!result||['same_event','same_place','event_at_place','different','uncertain'].indexOf(result.relation)<0||['high','medium','low'].indexOf(result.confidence)<0||!Array.isArray(result.conflicts)||!result.combined||typeof result.combined!=='object'||Array.isArray(result.combined))throw new Error('Invalid companion result.');
+  if(a.original_image_file_id&&a.original_image_file_id===b.original_image_file_id)return 'different';
   const raw=ensureEventsSheet_(),canonical=canonicalObjects_();
   if(result.relation==='event_at_place')return 'related';
   if(result.relation==='different'){
@@ -164,7 +175,8 @@ function applyCompanionResult_(a,b,result,policy){
   const manuallyReviewed=!!(blank_(base.manual_notes)||blank_(add.manual_notes));
   const sameKind=result.relation==='same_event'?target.match_status!=='place'&&incoming.match_status!=='place'&&companionClues_(target).listing_kind!=='place'&&companionClues_(incoming).listing_kind!=='place':!dateKey_(target.start_date)&&!dateKey_(incoming.start_date);
   const reviewedOtherGroup=manuallyReviewed&&target.group_id!==incoming.group_id;
-  const canAuto=['same_event','same_place'].indexOf(result.relation)>=0&&blank_(combined.title)&&result.confidence==='high'&&policy.strong&&!policy.ambiguous&&!conflicts.length&&sameKind&&!reviewedOtherGroup&&(!manuallyReviewed||!changes.length);
+  const multiListing=[target,incoming].some(r=>readObjects_(raw).filter(x=>x.original_image_file_id===r.original_image_file_id&&x.status!==CONFIG.STATUS.ERROR).some(x=>x.group_id!==r.group_id));
+  const canAuto=!multiListing&&['same_event','same_place'].indexOf(result.relation)>=0&&blank_(combined.title)&&result.confidence==='high'&&policy.strong&&!policy.ambiguous&&!conflicts.length&&sameKind&&!reviewedOtherGroup&&(!manuallyReviewed||!changes.length);
   if(!canAuto){
     const reason='Companion: '+(conflicts.length?'Conflicting '+conflicts.join(', '):policy.ambiguous?'Several possible companions':reviewedOtherGroup||manuallyReviewed&&changes.length?'Additional information for a manually reviewed listing':result.reason||'Uncertain relationship');
     if(incoming.match_status==='place')return 'review'; // Saved places remain separate; do not erase their record.

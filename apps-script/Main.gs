@@ -32,27 +32,19 @@ function processInbox() {
     const folder = DriveApp.getFolderById(settings.inboxFolderId);
     const files = folder.getFiles();
 
-    let handled = 0;
-
-    while (files.hasNext() && handled < CONFIG.MAX_FILES_PER_RUN && Date.now()-startedAt<180000) {
-      const file = files.next();
-
-      if (!isSupportedImage_(file)) {
-        continue;
-      }
-
-      if (isProcessed_(file.getId())) {
-        continue;
-      }
-
-      handled++;
-
-      try {
-        processOneFile_(file);
-      } catch (err) {
-        console.error('Failed: ' + file.getName() + ' — ' + err.stack);
-        appendErrorRow_(file, err);
-        // Do not mark as processed: retry remains possible.
+    let handled = 0, imageChecks=0;
+    const pending=[];
+    while(files.hasNext()){const file=files.next();if(isSupportedImage_(file)&&!isProcessed_(file.getId()))pending.push(file);}
+    pending.sort((a,b)=>screenshotFileMoment_(a)-screenshotFileMoment_(b)||a.getName().localeCompare(b.getName()));
+    for(let offset=0;offset<pending.length&&handled<CONFIG.MAX_FILES_PER_RUN&&Date.now()-startedAt<180000;){
+      const batch=[pending[offset++]];
+      while(offset<pending.length&&batch.length<4&&batch.length+handled<CONFIG.MAX_FILES_PER_RUN&&screenshotFileMoment_(pending[offset])-screenshotFileMoment_(batch[batch.length-1])<=10*60*1000)batch.push(pending[offset++]);
+      let groups=batch.map(f=>[f]);
+      try{if(batch.length>1&&imageChecks<2&&reserveCompanionCall_()){imageChecks++;groups=groupNeighbourScreenshots_(batch);}}catch(err){console.warn('Image grouping unavailable; individual extraction and later checks remain available: '+err.message);}
+      for(const group of groups){
+        if(Date.now()-startedAt>=180000)break;
+        handled+=group.length;
+        try{processScreenshotGroup_(group);}catch(err){console.error('Failed screenshot group: '+err.message);group.forEach(file=>appendErrorRow_(file,err));}
       }
     }
 
@@ -77,6 +69,7 @@ function processOneFile_(file) {
   const hash=Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256,bytes).map(function(x){return ('0'+((x+256)%256).toString(16)).slice(-2);}).join('');
   setupPipeline_();
   const observations=readObjects_(ensureEventsSheet_()).filter(function(r){return r.id&&r.status!==CONFIG.STATUS.ERROR;});
+  if(observations.some(r=>(companionClues_(r).source_images||[]).some(x=>x.fileId===file.getId()))){markProcessed_(file.getId());refreshEventViews_();return;}
   const same=observations.filter(function(r){return companionClues_(r).image_hash===hash;});
   if(same.length){
     // Copy the first source file's observations once, retaining each event's disposition.
