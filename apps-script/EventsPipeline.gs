@@ -140,7 +140,7 @@ function refreshEventViews_() {
   const records=table_(PIPE.RECORDS,PIPE.UPCOMING_HEADERS);
   const existing=readObjects_(records).concat(readObjects_(up)), byId={};existing.forEach(function(x){byId[String(x.group_id)]=x;});
   const allSource=readObjects_(sh).filter(function(x){return x.status!==CONFIG.STATUS.ERROR && x.id;});
-  const excluded=allSource.filter(function(x){return x.match_status==='not_local';});
+  const excluded=allSource.filter(function(x){return ['not_local','trash'].indexOf(x.match_status)>=0;});
   const excludedGroups={};excluded.forEach(function(x){if(x.group_id)excludedGroups[String(x.group_id)]=true;});
   const inactiveGroups=Object.assign({},excludedGroups);
   allSource.filter(function(x){return x.match_status==='place';}).forEach(function(x){inactiveGroups[String(x.group_id)]=true;});
@@ -186,7 +186,7 @@ function refreshEventViews_() {
         const heads=CONFIG.HEADERS,values=sh.getRange(s._row,1,1,heads.length).getValues()[0];
         values[heads.indexOf('status')]=CONFIG.STATUS.REJECTED;
         sh.getRange(s._row,1,1,heads.length).setValues([values]);
-        updateMeta_(sh,s._row,{group_id:blocked.group_id,match_status:'not_local',review_reason:'Excluded: not local',suggested_group_id:''});
+        updateMeta_(sh,s._row,{group_id:blocked.group_id,match_status:blocked.match_status,review_reason:blocked.match_status==='trash'?'Removed to Trash':'Excluded: not local',suggested_group_id:''});
         return;
       }
       const candidates=Object.keys(groups).map(function(key){const candidate=byId[key]||groups[key][0];return {gid:key, match:matchCandidate_(s,candidate)};})

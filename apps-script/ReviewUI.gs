@@ -3,16 +3,11 @@
  */
 const VISUAL_FIELDS=['title','start_date','end_date','start_time','end_time','venue','address','organizer','price','contact','registration_url','description','categories','age_info','source_account'];
 function onOpen() {
-  SpreadsheetApp.getUi().createMenu('Events')
-    .addItem('Review selected event', 'openVisualReview')
-    .addItem('Move selected to Places & Activities', 'openBulkMove')
-    .addItem('Copy selected to Places & Activities', 'openBulkCopy')
-    .addItem('Move selected back to Events', 'openBulkReturn')
-    .addItem('Set selected venue / address', 'openBulkLocation')
-    .addItem('Check companion screenshots now', 'processCompanions')
-    .addItem('Refresh event views', 'refreshEventViews')
-    .addItem('Fix date and time display', 'fixEventDateTimeDisplay')
-    .addToUi();
+  const ui=SpreadsheetApp.getUi();
+  const move=ui.createMenu('Move to Places & Activities'),copy=ui.createMenu('Copy to Places & Activities');
+  [['Activity / club / gym','Activities'],['Experience','Experiences'],['Course / classes','Courses'],['Recurring event / market','Recurring'],['Attraction','Attractions'],['Day trip','DayTrips'],['Restaurant / cafe','Restaurants']].forEach(x=>{move.addItem(x[0],'move'+x[1]);copy.addItem(x[0],'copy'+x[1]);});
+  const share=ui.createMenu('Sharing').addItem('Prepare selected for sharing','openPrepareSharing').addItem('Sync public posters now','syncPublicPosters').addItem('Open public page','openPublicPage').addSeparator().addItem('Connect public page','connectPublicPage');
+  ui.createMenu('Events').addItem('Review selected event','openVisualReview').addSubMenu(move).addSubMenu(copy).addItem('Move selected back to Events','returnSelectedToEvents').addItem('Set selected venue / address','openBulkLocation').addSubMenu(share).addSeparator().addItem('Remove selected to Trash','removeSelectedEntries').addItem('Restore selected Trash entries','restoreSelectedTrash').addSeparator().addItem('Check companion screenshots now','processCompanions').addItem('Refresh event views','refreshEventViews').addItem('Fix date and time display','fixEventDateTimeDisplay').addToUi();
 }
 function vrRows_(tab){
   const sh=SpreadsheetApp.getActiveSpreadsheet().getSheetByName(tab);
