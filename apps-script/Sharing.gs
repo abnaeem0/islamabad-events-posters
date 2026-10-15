@@ -1,7 +1,7 @@
 /** Public posters only. Original screenshots remain in Drive; the server publishes the crop. */
 const SHARING={URL:'https://islamabad-out-and-about.softcrumb16.chatgpt.site',ASSETS:'Poster Crops',ASSET_HEADERS:['file_id','crop_json','crop_status','crop_reason','checked_at','public_asset_url','asset_signature'],STATE:'Publications',STATE_HEADERS:['listing_id','group_id','kind','content_hash','poster_url','public_url','published_at','remote_revision'],TRASH:'Trash',TRASH_HEADERS:['group_id','title','removed_at','snapshot_json'],FIELDS:['title','start_date','end_date','start_time','end_time','venue','address','organizer','price','contact','registration_url','description','categories','age_info','source_account']};
 const PUBLIC_QUEUE={TAB:'Publication Queue',HEADERS:['listing_id','title','status','attempt_count','next_retry_at','last_error','checked_at']};
-function sharingTables_(){table_(LISTING_SETTINGS.TAB,LISTING_SETTINGS.HEADERS);table_(HOLDING.TAB,HOLDING.HEADERS);table_(PUBLIC_OUTBOX.TAB,PUBLIC_OUTBOX.HEADERS);table_(PUBLIC_QUEUE.TAB,PUBLIC_QUEUE.HEADERS);table_(SHARING.ASSETS,SHARING.ASSET_HEADERS);table_(SHARING.STATE,SHARING.STATE_HEADERS);table_(SHARING.TRASH,SHARING.TRASH_HEADERS);}
+function sharingTables_(){table_(TEXT_ARCHIVE.TAB,TEXT_ARCHIVE.HEADERS);table_(LISTING_SETTINGS.TAB,LISTING_SETTINGS.HEADERS);table_(HOLDING.TAB,HOLDING.HEADERS);table_(PUBLIC_OUTBOX.TAB,PUBLIC_OUTBOX.HEADERS);table_(PUBLIC_QUEUE.TAB,PUBLIC_QUEUE.HEADERS);table_(SHARING.ASSETS,SHARING.ASSET_HEADERS);table_(SHARING.STATE,SHARING.STATE_HEADERS);table_(SHARING.TRASH,SHARING.TRASH_HEADERS);}
 function sharingConnection_(){const p=PropertiesService.getScriptProperties();return {url:p.getProperty('PUBLIC_PAGE_URL')||SHARING.URL,token:p.getProperty('PUBLIC_PAGE_TOKEN')||''};}
 function connectPublicPage(){
  const ui=SpreadsheetApp.getUi(),r=ui.prompt('Connect public page','Open '+SHARING.URL+'/connect, copy connection settings, and paste them here.',ui.ButtonSet.OK_CANCEL);if(r.getSelectedButton()!==ui.Button.OK)return;
@@ -47,7 +47,7 @@ function suggestPosterCropNetwork_(fileId){
  const crop=parseGeminiJson_(result.text);if(!validCrop_(crop.box))throw new Error('Crop suggestion invalid. Crop manually in Prepare selected for sharing.');return withDataLock_(function(){const current=cropRow_(fileId);if(current)return current;return storeCrop_(fileId,crop.box,crop.confidence==='high'?'ready':'review',String(crop.reason||'').slice(0,1000));});
 }
 function publicListing_(record,kind){
- const out={id:kind+':'+record.group_id,kind};SHARING.FIELDS.forEach(k=>out[k]=vrString_(record[k],k));out.place_type=kind==='place'?String(record.place_type||'activity'):'';
+ const out={id:kind+':'+record.group_id,kind};SHARING.FIELDS.forEach(k=>out[k]=vrString_(record[k],k));out.contact=readableContact_(out.contact);out.place_type=kind==='place'?String(record.place_type||'activity'):'';
  const checked=String(record.manual_notes||'').match(/\d{4}-\d{2}-\d{2}T[\d:.]+Z/);out.last_checked=checked?checked[0]:vrString_(record.processed_at,'processed_at');
  if(kind==='place'&&record.event_snapshot){try{const event=JSON.parse(record.event_snapshot);['start_date','end_date','start_time','end_time'].forEach(k=>out[k]=vrString_(event[k],k));}catch(e){}}
  Object.assign(out,expiryDetails_(record,kind));return out;

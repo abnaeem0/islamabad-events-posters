@@ -71,6 +71,8 @@ function processOneFile_(file) {
   const already = withDataLock_(function () {
     setupPipeline_();
     const observations = readObjects_(ensureEventsSheet_()).filter(r => r.id && r.status !== CONFIG.STATUS.ERROR);
+    const existingFile=observations.filter(r=>String(r.original_image_file_id)===String(file.getId()));
+    if(existingFile.length){archiveExtractions_(existingFile);routeNewResearch_(existingFile);}
     if (observations.some(r => String(r.original_image_file_id) === String(file.getId()) || (companionClues_(r).source_images || []).some(x => x.fileId === file.getId()))) { markProcessed_(file.getId()); return true; }
     const same = observations.filter(r => companionClues_(r).image_hash === hash);
     if (same.length) { appendExactPosterCopy_(file, same.filter(r => r.original_image_file_id === same[0].original_image_file_id), hash); return true; }
@@ -98,6 +100,7 @@ function appendExactPosterCopy_(file,originals,hash){
     return CONFIG.HEADERS.concat(PIPE.META).map(function(k){return nativeEventCell_(k,r[k]||'');});
   });
   if(rows.length)raw.getRange(raw.getLastRow()+1,1,rows.length,rows[0].length).setValues(rows);
+  archiveExtractions_(readObjects_(raw).filter(r=>r.original_image_file_id===file.getId()&&r.status!==CONFIG.STATUS.ERROR));
   markProcessed_(file.getId());refreshIfNeeded_();
   const all=readObjects_(raw);
   originals.filter(function(r){return r.match_status==='place';}).forEach(function(r){writeCanonicalPatch_(r.group_id,{source_count:all.filter(function(x){return x.group_id===r.group_id;}).length});});

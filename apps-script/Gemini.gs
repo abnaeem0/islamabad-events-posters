@@ -17,6 +17,7 @@ function extractEventFromPoster_(blob, filename, companionBlobs) {
     'When several screenshots are supplied, read them as one confirmed post. Return EVERY distinct workshop/event, even when the images share design or venue. An overview slide and detail slide for the same session are one item. Apply a clearly shared venue/address/contact to all relevant workshops unless separate locations are shown. Preserve distinct dates, times, prices and titles. Missing fields stay null.',
     'Return poster_box as [left,top,right,bottom] on a 0..1000 scale for the COMPLETE promotional artwork in THIS image. Exclude phone bars, Instagram controls and surrounding caption text; keep all poster details and branding. For multiple listings on the same image use the same whole-poster box for every listing. An already cropped poster uses [0,0,1000,1000]. poster_confidence is high only when a complete clean promotional crop is clear. Never classify a private message or personal screenshot as a promotional poster. Use low confidence when no clean promotional crop exists.',
     'promotion_end_date is the explicit expiry/deadline of an offer, YYYY-MM-DD, or null. Never invent a 90-day validity or treat the screenshot date as an offer deadline. Courses and recurring activities without a specific dated session are not missing-date events.',
+    'Set intake_route to listing for ANY recognizable third-party public event poster, ad, course, recurring activity or place promotion, even if date, venue or many other details are missing. Do not park recognizable promotional material in research. Use research for personal/unrelated screenshots, notes, or fragments with too little evidence to identify a public listing; use listing_kind partial or unknown in that case. Include a short intake_reason. Preserve text even when it is not an event.',
     'Do not invent missing facts.',
     'The event is expected to be relevant to Islamabad, Pakistan, but do not use that expectation to fill missing venue/address details.',
     '',
@@ -73,7 +74,7 @@ function extractEventFromPoster_(blob, filename, companionBlobs) {
   const result=parseGeminiJson_(response.text);
 
   if (!result || !Array.isArray(result.events)) throw new Error('Gemini did not return events array');
-  return result.events.map(normalizeExtraction_).filter(function(e){return e.title || e.start_date || e.venue || e.address || e.contact || e.source_account || e.companion_clues.visible_text;});
+  return result.events.map(normalizeExtraction_).filter(function(e){return e.companion_clues.intake_route==='research' || e.title || e.start_date || e.venue || e.address || e.contact || e.source_account || e.companion_clues.visible_text;});
 }
 
 function getGeminiResponseSchema_() {
@@ -87,6 +88,8 @@ function getSingleEventSchema_() {
   return {
     type: 'OBJECT',
     properties: {
+      intake_route:{type:'STRING',enum:['listing','research']},
+      intake_reason:{type:'STRING'},
       poster_box:{type:'ARRAY',items:{type:'NUMBER'}},
       poster_confidence:{type:'STRING',enum:['high','medium','low']},
       promotion_end_date:{type:'STRING',nullable:true},
@@ -126,7 +129,7 @@ function getSingleEventSchema_() {
       extraction_notes: { type: 'STRING', nullable: true }
     },
     required: [
-      'poster_box','poster_confidence','promotion_end_date','listing_kind','place_type','visible_text','visible_handles','booking_reference','carousel_index','carousel_total',
+      'intake_route','intake_reason','poster_box','poster_confidence','promotion_end_date','listing_kind','place_type','visible_text','visible_handles','booking_reference','carousel_index','carousel_total',
       'title',
       'start_date',
       'end_date',
@@ -158,6 +161,8 @@ function normalizeExtraction_(x) {
 
   return {
     companion_clues:{
+      intake_route:x.intake_route==='research'?'research':'listing',
+      intake_reason:truncate_(cleanNullable_(x.intake_reason)||'',600),
       poster_box:validCrop_(x.poster_box)?x.poster_box:null,
       poster_confidence:['high','medium','low'].includes(x.poster_confidence)?x.poster_confidence:'low',
       promotion_end_date:dateKey_(x.promotion_end_date),

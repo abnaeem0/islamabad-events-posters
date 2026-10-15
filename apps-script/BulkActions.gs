@@ -1,5 +1,5 @@
 /** Bulk actions resolve selected rows to stable record IDs before opening a preview. */
-const PLACE_TYPES=['activity','experience','course','recurring_event','attraction','day_trip','restaurant'];
+const PLACE_TYPES=['uncategorized','activity','experience','course','recurring_event','attraction','day_trip','restaurant'];
 function captureEventSnapshot_(groupId){
   const event=visualEventRows_().find(r=>String(r.group_id)===String(groupId))||vrRows_(PIPE.RAW).find(r=>String(r.group_id)===String(groupId));
   if(!event)throw new Error('Event no longer exists.');

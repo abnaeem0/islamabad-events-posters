@@ -120,7 +120,7 @@ function putRawEvents_(file, items) {
   applyEventColumnFormats_(sh,CONFIG.HEADERS);
   // A retry after an interrupted write should never insert duplicate observations.
   const old=readObjects_(sh).filter(function(r){return r.original_image_file_id===file.getId() && r.status!==CONFIG.STATUS.ERROR;});
-  if(old.length) {markProcessed_(file.getId());refreshIfNeeded_();return;}
+  if(old.length) {archiveExtractions_(old);routeNewResearch_(old);markProcessed_(file.getId());refreshIfNeeded_();return;}
   if(!items.length)throw new Error('No event extracted from this poster.');
   const rows=items.map(function(e){
     const obj=buildEventRow_(file,e);
@@ -129,6 +129,8 @@ function putRawEvents_(file, items) {
     return CONFIG.HEADERS.map(function(h){return nativeEventCell_(h,obj[h]);}).concat(['','','','',serializeCell_(e.companion_clues||{})]);
   });
   sh.getRange(sh.getLastRow()+1,1,rows.length,rows[0].length).setValues(rows);
+  const added=readObjects_(sh).filter(r=>r.original_image_file_id===file.getId()&&r.status!==CONFIG.STATUS.ERROR);
+  archiveExtractions_(added);routeNewResearch_(added);
   markProcessed_(file.getId());
   refreshIfNeeded_();
 }

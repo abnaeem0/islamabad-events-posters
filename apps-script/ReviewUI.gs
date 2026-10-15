@@ -4,10 +4,10 @@
 const VISUAL_FIELDS=['title','start_date','end_date','start_time','end_time','venue','address','organizer','price','contact','registration_url','description','categories','age_info','source_account'];
 function onOpen() {
   const ui=SpreadsheetApp.getUi();
-  const move=ui.createMenu('Move to Places & Activities'),copy=ui.createMenu('Copy to Places & Activities');
+  const move=ui.createMenu('Move and categorize'),copy=ui.createMenu('Copy and categorize');
   [['Activity / club / gym','Activities'],['Experience','Experiences'],['Course / classes','Courses'],['Recurring event / market','Recurring'],['Attraction','Attractions'],['Day trip','DayTrips'],['Restaurant / cafe','Restaurants']].forEach(x=>{move.addItem(x[0],'move'+x[1]);copy.addItem(x[0],'copy'+x[1]);});
   const share=ui.createMenu('Sharing').addItem('Prepare selected for sharing','openPrepareSharing').addItem('Sync public posters now','syncPublicPosters').addItem('Publishing status','showPublicationStatus').addItem('Open public page','openPublicPage').addSeparator().addItem('Connect public page','connectPublicPage');
-  ui.createMenu('Events').addItem('Review selected event','openVisualReview').addSubMenu(move).addSubMenu(copy).addItem('Move selected to Research','moveSelectedToResearch').addItem('Return selected from Research','returnSelectedFromResearch').addItem('Move selected back to Events','returnSelectedToEvents').addItem('Set selected venue / address','openBulkLocation').addSubMenu(share).addSeparator().addItem('Remove selected to Trash','removeSelectedEntries').addItem('Restore selected Trash entries','restoreSelectedTrash').addSeparator().addItem('Check companion screenshots now','processCompanions').addItem('Refresh event views','refreshEventViews').addItem('Fix date and time display','fixEventDateTimeDisplay').addToUi();
+  ui.createMenu('Events').addItem('Review selected event','openVisualReview').addItem('Move to Places & Activities','moveUncategorized').addItem('Copy to Places & Activities','copyUncategorized').addSubMenu(move).addSubMenu(copy).addItem('Move selected to Research','moveSelectedToResearch').addItem('Return selected from Research','returnSelectedFromResearch').addItem('Move selected back to Events','returnSelectedToEvents').addItem('Set selected venue / address','openBulkLocation').addSubMenu(share).addSeparator().addItem('Remove selected to Trash','removeSelectedEntries').addItem('Restore selected Trash entries','restoreSelectedTrash').addSeparator().addItem('Check companion screenshots now','processCompanions').addItem('Refresh event views','refreshEventViews').addItem('Fix date and time display','fixEventDateTimeDisplay').addToUi();
 }
 function vrRows_(tab){
   const sh=SpreadsheetApp.getActiveSpreadsheet().getSheetByName(tab);
@@ -20,6 +20,7 @@ function vrRows_(tab){
 }
 function vrString_(v,key){
   if(v===undefined||v===null||v==='')return '';
+  if(key==='contact')return readableContact_(v);
   if(v instanceof Date){
     if(/date/.test(key))return Utilities.formatDate(v,'Asia/Karachi','yyyy-MM-dd');
     if(/time/.test(key))return Utilities.formatDate(v,'Asia/Karachi','HH:mm');
@@ -29,9 +30,9 @@ function vrString_(v,key){
   if(/date$/.test(key))return dateKey_(v);
   return String(v);
 }
-function vrImage_(id) {
+function vrImage_(id,previewOnly) {
   if(!id)return '';
-  const cache=CacheService.getUserCache(),prefix='poster-v2:'+String(id)+':';
+  const cache=CacheService.getUserCache(),prefix='poster-v3:'+(previewOnly?'preview:':'original:')+String(id)+':';
   try {
     const count=Number(cache.get(prefix+'count'));
     if(count>0 && count<=110){
@@ -40,7 +41,10 @@ function vrImage_(id) {
     }
   }catch(e){ /* Cache eviction or unavailability is harmless. */ }
   try {
-    const b=DriveApp.getFileById(String(id)).getBlob();
+    const file=DriveApp.getFileById(String(id));
+    let b=null;
+    if(previewOnly){try{b=file.getThumbnail();}catch(e){/* Older files may lack thumbnails. */}}
+    if(!b)b=file.getBlob();
     const bytes=b.getBytes();
     if(bytes.length>6*1024*1024 || !/^image\/(jpeg|png|webp|gif)$/.test(b.getContentType()))return '';
     const image='data:'+b.getContentType()+';base64,'+Utilities.base64Encode(bytes);
@@ -53,15 +57,15 @@ function vrImage_(id) {
   } catch(e){return '';}
 }
 /** Load privately through Apps Script; originals do not need public Drive sharing. */
-function getVisualPoster(sourceId,fileId,previewOnly){
+function getVisualPoster(sourceId,fileId,previewOnly,forceDrive){
   const source=vrRows_('Events').find(r=>String(r.id)===String(sourceId));
   if(!source)throw new Error('Poster source no longer exists.');
   const attached=(companionClues_(source).source_images||[]).find(x=>String(x.fileId)===String(fileId));
   if(fileId&&String(fileId)!==String(source.original_image_file_id)&&!attached)throw new Error('Image is not linked to this source.');
   const actual=String(attached?attached.fileId:source.original_image_file_id);
   const crop=cropRow_(actual);
-  if(previewOnly&&crop&&crop.public_asset_url&&crop.asset_signature===digestKey_(crop.crop_json))return {image:sharingConnection_().url+crop.public_asset_url,link:String(attached?attached.link:source.original_image_url||'')};
-  return {image:vrImage_(attached?attached.fileId:source.original_image_file_id),link:String(attached?attached.link:source.original_image_url||'')};
+  if(previewOnly&&!forceDrive&&crop&&crop.public_asset_url&&crop.asset_signature===digestKey_(crop.crop_json))return {image:sharingConnection_().url+crop.public_asset_url,link:String(attached?attached.link:source.original_image_url||'')};
+  return {image:vrImage_(attached?attached.fileId:source.original_image_file_id,previewOnly),link:String(attached?attached.link:source.original_image_url||'')};
 }
 function fixEventDateTimeDisplay(){
   const ss=SpreadsheetApp.getActiveSpreadsheet();ss.setSpreadsheetTimeZone('Asia/Karachi');
@@ -116,7 +120,7 @@ function getVisualReviewData(context){
     singleView:editing || (!event.suggested_group_id && /^Missing /.test(String(event.issue||''))),
     sharedVenueTargets:sharedVenueTargets_(source,current),
     mode:context.mode,sourceId:source&&String(source.id)||'',
-    groupId:editing?String(event.group_id):String(event.group_id||''),placeType:String(current.place_type||'activity'),
+    groupId:editing?String(event.group_id):String(event.group_id||''),placeType:String(current.place_type||'uncategorized'),
     suggestedGroupId:context.mode==='review'?String(event.suggested_group_id||''):'',
     publication:expiryDetails_(current,context.mode==='place'?'place':'event'),approvedAsIs:approvalApplies_(current,context.mode==='place'?'place':'event'),
     title:current.title||source&&source.title||'Unnamed event',
@@ -206,8 +210,8 @@ function saveVisualDecision(payload){
     let groupId=String(payload.groupId||'');
     if(action==='not_local'||action==='place'||action==='copy_place'||payload.mode==='place'){
       if(!source||!groupId||String(source.group_id)!==groupId)throw new Error('This record changed. Close and reopen it.');
-      const type=String(payload.placeType||'activity');
-      if(action!=='not_local'&&!['activity','experience','course','recurring_event','attraction','day_trip','restaurant'].includes(type))throw new Error('Choose a valid place type.');
+      const type=String(payload.placeType||'uncategorized');
+      if(action!=='not_local'&&!PLACE_TYPES.includes(type))throw new Error('Choose a valid place type.');
       const placeSheet=table_(PIPE.PLACES,PIPE.PLACE_HEADERS);
       const place=vrRows_(PIPE.PLACES).find(r=>String(r.group_id)===groupId);
       if(action==='not_local'){

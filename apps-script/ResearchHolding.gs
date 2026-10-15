@@ -3,7 +3,7 @@ const HOLDING = {TAB: 'Research', HEADERS: ['group_id','title','notes','source_l
 function holdingSnapshot_(id) {
   const raw = vrRows_(PIPE.RAW).filter(r => String(r.group_id) === String(id));
   if (!raw.length) throw new Error('Source no longer exists.');
-  const record = visualEventRows_().find(r => String(r.group_id) === String(id));
+  const record = visualEventRows_().find(r => String(r.group_id) === String(id)) || Object.assign({},raw[0],{group_id:String(id)});
   const place = vrRows_(PIPE.PLACES).find(r => String(r.group_id) === String(id));
   return {record: portableRecord_(record), place: portableRecord_(place), states: raw.map(r => ({id:String(r.id),status:r.status,match_status:r.match_status,review_reason:r.review_reason,suggested_group_id:r.suggested_group_id}))};
 }

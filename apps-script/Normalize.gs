@@ -89,9 +89,9 @@ function normalizedContact_(value) {
   if (phones.length) {
     // Keep emails, landlines and contact notes alongside mobiles.
     const rest=raw.replace(/(?:\+?92|0092|0)?[\s().-]*3\d{2}[\s().-]*\d{3}[\s().-]*\d{4}/g,' ').replace(/[\s\[\]{}"',;|:+().-]/g,'');
-    return rest ? raw : JSON.stringify(phones);
+    return rest ? readableContact_(raw) : phones.join('; ');
   }
-  return raw; // preserve emails, landlines and other non-mobile contact information
+  return readableContact_(raw); // preserve emails, landlines and other non-mobile contact information
 }
 function isPast_(row) {
   const d = dateKey_(row.end_date) || dateKey_(row.start_date);
@@ -101,4 +101,13 @@ function isPast_(row) {
 function eventFields_() {
   return ['title','start_date','end_date','start_time','end_time','venue','address','organizer',
     'price','contact','registration_url','description','categories','age_info','source_account'];
+}
+
+/** Decode legacy array-shaped contacts without evaluating text. */
+function readableContact_(value){
+ if(Array.isArray(value))return value.map(readableContact_).filter(Boolean).join('; ');
+ const raw=blank_(value);if(!/^\s*\[/.test(raw)||! /\]\s*$/.test(raw))return raw;
+ try{const parsed=JSON.parse(raw);if(Array.isArray(parsed))return parsed.map(readableContact_).join('; ');}catch(e){}
+ const quoted=raw.match(/^\[\s*'[^']*'(?:\s*,\s*'[^']*')*\s*\]$/);
+ return quoted?(raw.match(/'([^']*)'/g)||[]).map(x=>x.slice(1,-1)).join('; '):raw;
 }
