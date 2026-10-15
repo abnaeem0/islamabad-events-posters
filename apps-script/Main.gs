@@ -20,98 +20,85 @@ function setupProject() {
  * Main worker. Safe to run manually or from a time trigger.
  */
 function processInbox() {
-  const lock = LockService.getScriptLock();
-  if (!lock.tryLock(1000)) {
-    console.log('Another inbox run is already active.');
-    return;
-  }
-
-  try {
-    const startedAt=Date.now();
-    const settings = getSettings_();
-    const folder = DriveApp.getFolderById(settings.inboxFolderId);
-    const files = folder.getFiles();
-
-    let handled = 0, imageChecks=0;
-    const pending=[];
-    while(files.hasNext()){const file=files.next();if(isSupportedImage_(file)&&!isProcessed_(file.getId()))pending.push(file);}
-    pending.sort((a,b)=>screenshotFileMoment_(a)-screenshotFileMoment_(b)||a.getName().localeCompare(b.getName()));
-    for(let offset=0;offset<pending.length&&handled<CONFIG.MAX_FILES_PER_RUN&&Date.now()-startedAt<180000;){
-      const batch=[pending[offset++]];
-      while(offset<pending.length&&batch.length<4&&batch.length+handled<CONFIG.MAX_FILES_PER_RUN&&screenshotFileMoment_(pending[offset])-screenshotFileMoment_(batch[batch.length-1])<=10*60*1000)batch.push(pending[offset++]);
-      let groups=batch.map(f=>[f]);
-      try{if(batch.length>1&&imageChecks<2&&reserveCompanionCall_()){imageChecks++;groups=groupNeighbourScreenshots_(batch);}}catch(err){console.warn('Image grouping unavailable; individual extraction and later checks remain available: '+err.message);}
-      for(const group of groups){
-        if(Date.now()-startedAt>=180000)break;
-        handled+=group.length;
-        try{processScreenshotGroup_(group);}catch(err){console.error('Failed screenshot group: '+err.message);group.forEach(file=>appendErrorRow_(file,err));}
+  return withJobLease_('inbox', function () {
+    const startedAt = Date.now();
+    if (geminiBusyUntil_() > Date.now()) return;
+    const folder = DriveApp.getFolderById(getSettings_().inboxFolderId), files = folder.getFiles(), pending = [];
+    while (files.hasNext()) {
+      const file = files.next();
+      // Wait for a multi-select upload to settle. Capture time is a matching clue, not upload age.
+      if (isSupportedImage_(file) && !isProcessed_(file.getId()) && inboxFileDue_(file.getId()) && Date.now() - file.getDateCreated().getTime() >= 120000) pending.push(file);
+    }
+    pending.sort((a, b) => screenshotFileMoment_(a) - screenshotFileMoment_(b) || a.getName().localeCompare(b.getName()));
+    let handled = 0;
+    deferEventViews_ = true;
+    try {
+      for (const file of pending) {
+        if (handled >= CONFIG.MAX_FILES_PER_RUN || Date.now() - startedAt > 180000) break;
+        handled++;
+        try { processOneFile_(file); }
+        catch (error) {
+          if (isTransientGeminiError_(error)) { console.warn('Gemini busy; screenshots remain queued.'); break; }
+          withDataLock_(function () { recordInboxFailure_(file, error); });
+        }
       }
+    } finally {
+      deferEventViews_ = false;
+      withDataLock_(function () { if (PropertiesService.getScriptProperties().getProperty('PIPELINE_DIRTY') === '1') refreshEventViews_(); });
     }
-
-    console.log('Inbox run finished. Attempted ' + handled + ' image(s).');
-    // Later runs continue pending companion checks even when there are no new uploads.
-    if(Date.now()-startedAt<240000){
-      try{processCompanions_(startedAt+270000);}catch(err){console.error('Companion checks deferred: '+err.message);}
-    }
-  } finally {
-    lock.releaseLock();
-  }
-}
-
-function processOneFile_(file) {
-  const blob = file.getBlob();
-  const bytes=blob.getBytes();
-
-  if (bytes.length > CONFIG.MAX_IMAGE_BYTES) {
-    throw new Error('Image exceeds V1 size limit of ' + CONFIG.MAX_IMAGE_BYTES + ' bytes.');
-  }
-
-  const hash=Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256,bytes).map(function(x){return ('0'+((x+256)%256).toString(16)).slice(-2);}).join('');
-  setupPipeline_();
-  const observations=readObjects_(ensureEventsSheet_()).filter(function(r){return r.id&&r.status!==CONFIG.STATUS.ERROR;});
-  if(observations.some(r=>(companionClues_(r).source_images||[]).some(x=>x.fileId===file.getId()))){markProcessed_(file.getId());refreshEventViews_();return;}
-  const same=observations.filter(function(r){return companionClues_(r).image_hash===hash;});
-  if(same.length){
-    // Copy the first source file's observations once, retaining each event's disposition.
-    const originalId=same[0].original_image_file_id;
-    appendExactPosterCopy_(file,same.filter(function(r){return r.original_image_file_id===originalId;}),hash);
-    return;
-  }
-
-  const extractions = extractEventFromPoster_(blob, file.getName());
-  // Legacy observations predate image hashes. Verify a few strong candidates by
-  // their original bytes so a copied old poster cannot reopen formatting conflicts.
-  const legacyIds=[];
-  observations.filter(function(r){return !companionClues_(r).image_hash&&r.original_image_file_id;}).forEach(function(r){
-    const plausible=extractions.some(function(e){return titleSimilarity_(e.title,r.title)>=0.8 || companionCandidate_(Object.assign({original_filename:file.getName(),original_image_file_id:file.getId()},e),r).eligible;});
-    if(plausible&&legacyIds.indexOf(r.original_image_file_id)<0&&legacyIds.length<3)legacyIds.push(r.original_image_file_id);
+    if (Date.now() - startedAt < 220000) processCompanions_(startedAt + 260000);
+    console.log('Inbox checked ' + handled + ' screenshots.');
   });
-  for(let i=0;i<legacyIds.length;i++){
-    try{
-      const oldBytes=DriveApp.getFileById(legacyIds[i]).getBlob().getBytes();
-      const oldHash=Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256,oldBytes).map(function(x){return ('0'+((x+256)%256).toString(16)).slice(-2);}).join('');
-      if(oldHash!==hash)continue;
-      const originals=observations.filter(function(r){return r.original_image_file_id===legacyIds[i];});
-      originals.forEach(function(r){const clues=companionClues_(r);clues.image_hash=hash;updateMeta_(ensureEventsSheet_(),r._row,{companion_clues:JSON.stringify(clues)});r.companion_clues=JSON.stringify(clues);});
-      appendExactPosterCopy_(file,originals,hash);return;
-    }catch(e){console.warn('Legacy poster fingerprint unavailable: '+e.message);}
-  }
-  extractions.forEach(function(e){e.companion_clues=e.companion_clues||{};e.companion_clues.image_hash=hash;});
-  putRawEvents_(file, extractions);
-
-  console.log('Processed: ' + file.getName());
 }
-
+function inboxFileDue_(id) { let failure = {}; try { failure = JSON.parse(PropertiesService.getScriptProperties().getProperty('FILE_FAILURE_' + id) || '{}'); } catch (e) {} return !(failure.next > Date.now()); }
+function recordInboxFailure_(file, error) {
+  const props = PropertiesService.getScriptProperties(), key = 'FILE_FAILURE_' + file.getId();
+  let old = {}; try { old = JSON.parse(props.getProperty(key) || '{}'); } catch (e) {}
+  const attempts = Number(old.attempts || 0) + 1;
+  props.setProperty(key, JSON.stringify({attempts: attempts, next: Date.now() + Math.min(24 * 3600000, 300000 * Math.pow(2, Math.min(attempts, 8)))}));
+  // Keep one error record per failed source, rather than appending every run.
+  const existing = readObjects_(ensureEventsSheet_()).find(r => String(r.original_image_file_id) === String(file.getId()) && r.status === CONFIG.STATUS.ERROR);
+  if (existing) vrUpdateRow_(PIPE.RAW, existing._row, {error: truncate_(error.message, 1000)});
+  else appendErrorRow_(file, error);
+}
+function processOneFile_(file) {
+  const props = PropertiesService.getScriptProperties();
+  let failure = {}; try { failure = JSON.parse(props.getProperty('FILE_FAILURE_' + file.getId()) || '{}'); } catch (e) {}
+  if (failure.next > Date.now()) return;
+  const blob = file.getBlob(), bytes = blob.getBytes();
+  if (bytes.length > CONFIG.MAX_IMAGE_BYTES) throw new Error('Image exceeds extraction size limit.');
+  const hash = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, bytes).map(x => ('0' + ((x + 256) % 256).toString(16)).slice(-2)).join('');
+  const already = withDataLock_(function () {
+    setupPipeline_();
+    const observations = readObjects_(ensureEventsSheet_()).filter(r => r.id && r.status !== CONFIG.STATUS.ERROR);
+    if (observations.some(r => String(r.original_image_file_id) === String(file.getId()) || (companionClues_(r).source_images || []).some(x => x.fileId === file.getId()))) { markProcessed_(file.getId()); return true; }
+    const same = observations.filter(r => companionClues_(r).image_hash === hash);
+    if (same.length) { appendExactPosterCopy_(file, same.filter(r => r.original_image_file_id === same[0].original_image_file_id), hash); return true; }
+    return false;
+  });
+  if (already) return;
+  // No sheet lock is held while Gemini reads the image.
+  const extractions = extractEventFromPoster_(blob, file.getName());
+  extractions.forEach(e => { e.companion_clues = e.companion_clues || {}; e.companion_clues.image_hash = hash; });
+  withDataLock_(function () {
+    // Another worker or a manual retry may have completed this source meanwhile.
+    if (isProcessed_(file.getId())) return;
+    cacheExtractedCrops_(file.getId(), extractions);
+    putRawEvents_(file, extractions);
+    props.deleteProperty('FILE_FAILURE_' + file.getId());
+  });
+}
 function appendExactPosterCopy_(file,originals,hash){
+  cacheExtractedCrops_(file.getId(), originals);
   const raw=ensureEventsSheet_();
-  if(readObjects_(raw).some(function(r){return r.original_image_file_id===file.getId()&&r.status!==CONFIG.STATUS.ERROR;})){markProcessed_(file.getId());refreshEventViews_();return;}
+  if(readObjects_(raw).some(function(r){return r.original_image_file_id===file.getId()&&r.status!==CONFIG.STATUS.ERROR;})){markProcessed_(file.getId());refreshIfNeeded_();return;}
   const rows=originals.map(function(original){
     const r=Object.assign({},original,{id:makeEventId_(),original_image_file_id:file.getId(),original_image_url:file.getUrl(),original_filename:file.getName(),processed_at:new Date().toISOString(),error:''});
     const clues=companionClues_(original);clues.image_hash=hash;r.companion_clues=JSON.stringify(clues);
     return CONFIG.HEADERS.concat(PIPE.META).map(function(k){return nativeEventCell_(k,r[k]||'');});
   });
   if(rows.length)raw.getRange(raw.getLastRow()+1,1,rows.length,rows[0].length).setValues(rows);
-  markProcessed_(file.getId());refreshEventViews_();
+  markProcessed_(file.getId());refreshIfNeeded_();
   const all=readObjects_(raw);
   originals.filter(function(r){return r.match_status==='place';}).forEach(function(r){writeCanonicalPatch_(r.group_id,{source_count:all.filter(function(x){return x.group_id===r.group_id;}).length});});
 }

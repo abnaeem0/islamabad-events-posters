@@ -8,6 +8,7 @@ function captureEventSnapshot_(groupId){
   return {event_snapshot:JSON.stringify(clean),source_states:JSON.stringify(states)};
 }
 function writeEventRecord_(record){
+  record=portableRecord_(record);
   const sh=table_(PIPE.RECORDS,PIPE.UPCOMING_HEADERS),old=readObjects_(sh).find(r=>String(r.group_id)===String(record.group_id));
   sh.getRange(old?old._row:sh.getLastRow()+1,1,1,PIPE.UPCOMING_HEADERS.length).setValues([PIPE.UPCOMING_HEADERS.map(k=>nativeEventCell_(k,record[k]||''))]);
 }

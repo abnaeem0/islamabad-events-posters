@@ -26,7 +26,9 @@ function table_(name, headings) {
   if(missing)sh.getRange(1,1,1,headings.length).setValues([headings]);
   return sh;
 }
+let pipelineSetupDone_ = false;
 function setupPipeline_() {
+  if (pipelineSetupDone_) return;
   const raw = ensureEventsSheet_();
   const start = CONFIG.HEADERS.length+1;
   if(raw.getMaxColumns()<CONFIG.HEADERS.length+PIPE.META.length)raw.insertColumnsAfter(raw.getMaxColumns(),CONFIG.HEADERS.length+PIPE.META.length-raw.getMaxColumns());
@@ -45,6 +47,7 @@ function setupPipeline_() {
   rev.setColumnWidth(2,160);
   const rule=SpreadsheetApp.newDataValidation().requireValueInList(['Merge suggested','Keep separate','Dismiss warning','Use source details'],true).setAllowInvalid(false).build();
   rev.getRange(2,col,Math.max(1,rev.getMaxRows()-1),1).setDataValidation(rule);
+  pipelineSetupDone_ = true;
 }
 /** Safely migrate the original review columns without losing pending dropdown choices. */
 function reviewTable_() {
@@ -108,6 +111,7 @@ function updateMeta_(sh,row,patch){
   const off=CONFIG.HEADERS.length+1,range=sh.getRange(row,off,1,PIPE.META.length),values=range.getValues()[0];
   PIPE.META.forEach(function(h,i){if(Object.prototype.hasOwnProperty.call(patch,h))values[i]=patch[h];});
   range.setValues([values]);
+  markPipelineDirty_();
 }
 function putRawEvents_(file, items) {
   setupPipeline_();
@@ -116,7 +120,7 @@ function putRawEvents_(file, items) {
   applyEventColumnFormats_(sh,CONFIG.HEADERS);
   // A retry after an interrupted write should never insert duplicate observations.
   const old=readObjects_(sh).filter(function(r){return r.original_image_file_id===file.getId() && r.status!==CONFIG.STATUS.ERROR;});
-  if(old.length) {markProcessed_(file.getId());refreshEventViews_();return;}
+  if(old.length) {markProcessed_(file.getId());refreshIfNeeded_();return;}
   if(!items.length)throw new Error('No event extracted from this poster.');
   const rows=items.map(function(e){
     const obj=buildEventRow_(file,e);
@@ -126,7 +130,7 @@ function putRawEvents_(file, items) {
   });
   sh.getRange(sh.getLastRow()+1,1,rows.length,rows[0].length).setValues(rows);
   markProcessed_(file.getId());
-  refreshEventViews_();
+  refreshIfNeeded_();
 }
 /** Run manually to capture dropdown choices and rebuild both derived tabs. */
 function refreshEventViews() {
@@ -140,7 +144,7 @@ function refreshEventViews_() {
   const records=table_(PIPE.RECORDS,PIPE.UPCOMING_HEADERS);
   const existing=readObjects_(records).concat(readObjects_(up)), byId={};existing.forEach(function(x){byId[String(x.group_id)]=x;});
   const allSource=readObjects_(sh).filter(function(x){return x.status!==CONFIG.STATUS.ERROR && x.id;});
-  const excluded=allSource.filter(function(x){return ['not_local','trash'].indexOf(x.match_status)>=0;});
+  const excluded=allSource.filter(function(x){return ['not_local','trash','research'].indexOf(x.match_status)>=0;});
   const excludedGroups={};excluded.forEach(function(x){if(x.group_id)excludedGroups[String(x.group_id)]=true;});
   const inactiveGroups=Object.assign({},excludedGroups);
   allSource.filter(function(x){return x.match_status==='place';}).forEach(function(x){inactiveGroups[String(x.group_id)]=true;});
@@ -184,9 +188,9 @@ function refreshEventViews_() {
       const blocked=excluded.find(function(x){return matchCandidate_(s,x).type==='merge';});
       if(blocked){
         const heads=CONFIG.HEADERS,values=sh.getRange(s._row,1,1,heads.length).getValues()[0];
-        values[heads.indexOf('status')]=CONFIG.STATUS.REJECTED;
+        values[heads.indexOf('status')]=blocked.match_status==='research'?CONFIG.STATUS.PENDING:CONFIG.STATUS.REJECTED;
         sh.getRange(s._row,1,1,heads.length).setValues([values]);
-        updateMeta_(sh,s._row,{group_id:blocked.group_id,match_status:blocked.match_status,review_reason:blocked.match_status==='trash'?'Removed to Trash':'Excluded: not local',suggested_group_id:''});
+        updateMeta_(sh,s._row,{group_id:blocked.group_id,match_status:blocked.match_status,review_reason:blocked.match_status==='research'?'Parked for research':blocked.match_status==='trash'?'Removed to Trash':'Excluded: not local',suggested_group_id:''});
         return;
       }
       const candidates=Object.keys(groups).map(function(key){const candidate=byId[key]||groups[key][0];return {gid:key, match:matchCandidate_(s,candidate)};})
@@ -205,6 +209,16 @@ function refreshEventViews_() {
     const parts=groups[gid];
     let canonical=byId[gid]?Object.assign({},byId[gid]):Object.assign({},parts[0]);
     canonical.group_id=gid;
+    // Clear undated place/course adverts need no missing-event-date review.
+    if(!canonical.manual_notes&&!dateKey_(canonical.start_date)&&blank_(canonical.title)&&(blank_(canonical.venue)||blank_(canonical.address))&&parts.every(p=>['place','course','recurring'].includes(companionClues_(p).listing_kind)&&p.confidence==='high'&&!p.suggested_group_id&&!p.review_reason&&!blank_(p.uncertain_fields))){
+      const clues=companionClues_(parts[0]),type=clues.listing_kind==='course'?'course':clues.listing_kind==='recurring'?'recurring_event':clues.place_type||'activity';
+      const snapshot={};PIPE.UPCOMING_HEADERS.forEach(k=>snapshot[k]=vrString_(canonical[k],k));
+      const place=Object.assign({},canonical,{group_id:gid,place_type:type,saved_at:new Date().toISOString(),event_snapshot:JSON.stringify(snapshot),source_states:JSON.stringify(parts.map(p=>({id:String(p.id),status:p.status,match_status:p.match_status,review_reason:p.review_reason,suggested_group_id:p.suggested_group_id})))});
+      const sh=table_(PIPE.PLACES,PIPE.PLACE_HEADERS),old=readObjects_(sh).find(p=>String(p.group_id)===gid);
+      if(!old)sh.getRange(sh.getLastRow()+1,1,1,PIPE.PLACE_HEADERS.length).setValues([PIPE.PLACE_HEADERS.map(k=>nativeEventCell_(k,place[k]||''))]);
+      parts.forEach(p=>updateMeta_(ensureEventsSheet_(),p._row,{match_status:'place',review_reason:'',suggested_group_id:''}));
+      recordRows.push(PIPE.UPCOMING_HEADERS.map(k=>nativeEventCell_(k,canonical[k])));return;
+    }
     // Compare before filling blanks: unreviewed changes must not alter the main event.
     const conflicts=[];
     parts.slice(1).forEach(function(p){
@@ -228,7 +242,7 @@ function refreshEventViews_() {
       if(p!==parts[0] && !p.suggested_group_id && eventDetailsEqual_(canonical,p))return;
       let why=blank_(p.review_reason);
       const conflict=conflicts.find(function(x){return x.p.id===p.id;});if(conflict)why=why?why+'; '+conflict.reason:conflict.reason;
-      const missing=[];if(!blank_(canonical.title))missing.push('title');if(!dateKey_(canonical.start_date))missing.push('date');if(!blank_(canonical.venue))missing.push('venue');
+      const missing=[];if(!blank_(canonical.title))missing.push('title');if(!dateKey_(canonical.start_date))missing.push('date');if(!blank_(canonical.venue))missing.push('venue');if(approvalApplies_(canonical,'event'))missing.length=0;
       if(missing.length && !why)why='Missing '+missing.join(', ');
       const uncertainty=blank_(p.uncertain_fields);
       if(!why && (p.confidence==='low'||(uncertainty && uncertainty!=='[]')) && ['manual','separate','companion'].indexOf(p.match_status)<0)why='Uncertain extraction: '+(uncertainty||'low confidence');
@@ -240,7 +254,7 @@ function refreshEventViews_() {
     canonical.publication_status=holdNew?'held':'ready';
     const recordRow=PIPE.UPCOMING_HEADERS.map(function(h){return nativeEventCell_(h,canonical[h]);});
     recordRows.push(recordRow);
-    if(!isPast_(canonical))rows.push(recordRow);
+    if(!isPast_(canonical)&&!expiredListing_(canonical,'event'))rows.push(recordRow);
   });
   rows.sort(function(a,b){const i=PIPE.UPCOMING_HEADERS.indexOf('start_date');return (dateKey_(a[i])||'9999-12-31').localeCompare(dateKey_(b[i])||'9999-12-31');});
   // One shared venue task per original poster; every workshop remains a separate record.
@@ -257,6 +271,7 @@ function refreshEventViews_() {
   const retained=new Set(recordRows.map(r=>String(r[0])));existing.forEach(r=>{if(inactiveGroups[String(r.group_id)]&&!excludedGroups[String(r.group_id)]&&!retained.has(String(r.group_id))){retained.add(String(r.group_id));recordRows.push(PIPE.UPCOMING_HEADERS.map(k=>nativeEventCell_(k,r[k])));}});
   writeView_(records,PIPE.UPCOMING_HEADERS,recordRows);
   writeView_(rev,PIPE.REVIEW_HEADERS,review.map(function(x){return PIPE.REVIEW_HEADERS.map(function(h){return nativeEventCell_(h,x[h]||'');});}));
+  PropertiesService.getScriptProperties().deleteProperty('PIPELINE_DIRTY');
   console.log('Upcoming: '+rows.length+'; review: '+review.length);
 }
 function writeView_(sh,headings,rows){

@@ -6,8 +6,8 @@ function onOpen() {
   const ui=SpreadsheetApp.getUi();
   const move=ui.createMenu('Move to Places & Activities'),copy=ui.createMenu('Copy to Places & Activities');
   [['Activity / club / gym','Activities'],['Experience','Experiences'],['Course / classes','Courses'],['Recurring event / market','Recurring'],['Attraction','Attractions'],['Day trip','DayTrips'],['Restaurant / cafe','Restaurants']].forEach(x=>{move.addItem(x[0],'move'+x[1]);copy.addItem(x[0],'copy'+x[1]);});
-  const share=ui.createMenu('Sharing').addItem('Prepare selected for sharing','openPrepareSharing').addItem('Sync public posters now','syncPublicPosters').addItem('Open public page','openPublicPage').addSeparator().addItem('Connect public page','connectPublicPage');
-  ui.createMenu('Events').addItem('Review selected event','openVisualReview').addSubMenu(move).addSubMenu(copy).addItem('Move selected back to Events','returnSelectedToEvents').addItem('Set selected venue / address','openBulkLocation').addSubMenu(share).addSeparator().addItem('Remove selected to Trash','removeSelectedEntries').addItem('Restore selected Trash entries','restoreSelectedTrash').addSeparator().addItem('Check companion screenshots now','processCompanions').addItem('Refresh event views','refreshEventViews').addItem('Fix date and time display','fixEventDateTimeDisplay').addToUi();
+  const share=ui.createMenu('Sharing').addItem('Prepare selected for sharing','openPrepareSharing').addItem('Sync public posters now','syncPublicPosters').addItem('Publishing status','showPublicationStatus').addItem('Open public page','openPublicPage').addSeparator().addItem('Connect public page','connectPublicPage');
+  ui.createMenu('Events').addItem('Review selected event','openVisualReview').addSubMenu(move).addSubMenu(copy).addItem('Move selected to Research','moveSelectedToResearch').addItem('Return selected from Research','returnSelectedFromResearch').addItem('Move selected back to Events','returnSelectedToEvents').addItem('Set selected venue / address','openBulkLocation').addSubMenu(share).addSeparator().addItem('Remove selected to Trash','removeSelectedEntries').addItem('Restore selected Trash entries','restoreSelectedTrash').addSeparator().addItem('Check companion screenshots now','processCompanions').addItem('Refresh event views','refreshEventViews').addItem('Fix date and time display','fixEventDateTimeDisplay').addToUi();
 }
 function vrRows_(tab){
   const sh=SpreadsheetApp.getActiveSpreadsheet().getSheetByName(tab);
@@ -53,11 +53,14 @@ function vrImage_(id) {
   } catch(e){return '';}
 }
 /** Load privately through Apps Script; originals do not need public Drive sharing. */
-function getVisualPoster(sourceId,fileId){
+function getVisualPoster(sourceId,fileId,previewOnly){
   const source=vrRows_('Events').find(r=>String(r.id)===String(sourceId));
   if(!source)throw new Error('Poster source no longer exists.');
   const attached=(companionClues_(source).source_images||[]).find(x=>String(x.fileId)===String(fileId));
   if(fileId&&String(fileId)!==String(source.original_image_file_id)&&!attached)throw new Error('Image is not linked to this source.');
+  const actual=String(attached?attached.fileId:source.original_image_file_id);
+  const crop=cropRow_(actual);
+  if(previewOnly&&crop&&crop.public_asset_url&&crop.asset_signature===digestKey_(crop.crop_json))return {image:sharingConnection_().url+crop.public_asset_url,link:String(attached?attached.link:source.original_image_url||'')};
   return {image:vrImage_(attached?attached.fileId:source.original_image_file_id),link:String(attached?attached.link:source.original_image_url||'')};
 }
 function fixEventDateTimeDisplay(){
@@ -71,14 +74,14 @@ function fixEventDateTimeDisplay(){
 function openVisualReview(){
   const sh=SpreadsheetApp.getActiveRange()&&SpreadsheetApp.getActiveRange().getSheet();
   const row=SpreadsheetApp.getActiveRange()&&SpreadsheetApp.getActiveRange().getRow();
-  if(!sh || row<2 || !['Event Review','Upcoming Events','Places & Activities','Event Records'].includes(sh.getName())){
+  if(!sh || row<2 || !['Event Review','Upcoming Events','Places & Activities','Event Records','Research'].includes(sh.getName())){
     SpreadsheetApp.getUi().alert('Select a row in Event Review, Upcoming Events, Event Records or Places & Activities first.');return;
   }
   const template=HtmlService.createTemplateFromFile('ReviewDialog');
   const heads=sh.getRange(1,1,1,sh.getLastColumn()).getValues()[0];
   const values=sh.getRange(row,1,1,heads.length).getValues()[0];
-  const queue=vrRows_(sh.getName()).filter(r=>r.group_id).map(r=>({mode:sh.getName()==='Event Review'?'review':sh.getName()==='Places & Activities'?'place':'edit',sourceId:String(r.source_id||''),groupId:String(r.group_id||'')}));
-  template.context=JSON.stringify({queue,mode:sh.getName()==='Event Review'?'review':sh.getName()==='Places & Activities'?'place':'edit',
+  const queue=vrRows_(sh.getName()).filter(r=>r.group_id).map(r=>({mode:sh.getName()==='Event Review'?'review':sh.getName()==='Places & Activities'?'place':sh.getName()==='Research'?'holding':'edit',sourceId:String(r.source_id||''),groupId:String(r.group_id||'')}));
+  template.context=JSON.stringify({queue,mode:sh.getName()==='Event Review'?'review':sh.getName()==='Places & Activities'?'place':sh.getName()==='Research'?'holding':'edit',
     sourceId:String(values[heads.indexOf('source_id')]||''),groupId:String(values[heads.indexOf('group_id')]||'')});
   SpreadsheetApp.getUi().showModalDialog(template.evaluate().setWidth(1160).setHeight(760),'Review event');
 }
@@ -87,7 +90,7 @@ function visualEventRows_(){
   [PIPE.RECORDS,PIPE.UPCOMING].forEach(name=>{const sh=ss.getSheetByName(name);if(sh)vrRows_(name).forEach(r=>rows[String(r.group_id)]=r);});
   return Object.keys(rows).map(k=>rows[k]);
 }
-function visualVersion_(record){return digestKey_(JSON.stringify({facts:VISUAL_FIELDS.map(k=>vrString_(record&&record[k],k)),poster:String(record&&record.original_image_file_id||''),research:String(record&&record.research_sources||'')}));}
+function visualVersion_(record){return digestKey_(JSON.stringify({facts:VISUAL_FIELDS.map(k=>vrString_(record&&record[k],k)),poster:String(record&&record.original_image_file_id||''),research:String(record&&record.research_sources||''),policy:readOptionalRows_(LISTING_SETTINGS.TAB).filter(r=>String(r.listing_id).endsWith(':'+String(record&&record.group_id))).map(r=>r.updated_at)}));}
 function companionDraftForSource_(sourceId,targetGroup){
   const sh=SpreadsheetApp.getActiveSpreadsheet().getSheetByName(COMPANION.TAB);if(!sh)return null;
   const sources=vrRows_(PIPE.RAW);
@@ -100,7 +103,7 @@ function companionDraftForSource_(sourceId,targetGroup){
 }
 function getVisualReviewData(context){
   const reviews=context.mode==='review'?vrRows_('Event Review'):[],incomingReview=reviews.find(r=>String(r.source_id)===String(context.sourceId));
-  const upcoming=context.mode==='place'?vrRows_(PIPE.PLACES):visualEventRows_();const sources=vrRows_('Events');
+  const upcoming=context.mode==='holding'?[researchHoldingRecord_(context.groupId)].filter(Boolean):context.mode==='place'?vrRows_(PIPE.PLACES):visualEventRows_();const sources=vrRows_('Events');
   const editing=context.mode!=='review';
   const canon=editing ? upcoming.find(r=>String(r.group_id)===String(context.groupId)) : upcoming.find(r=>String(r.group_id)===String(incomingReview&& (incomingReview.suggested_group_id || incomingReview.group_id)));
   const event=editing?canon:incomingReview;
@@ -115,6 +118,7 @@ function getVisualReviewData(context){
     mode:context.mode,sourceId:source&&String(source.id)||'',
     groupId:editing?String(event.group_id):String(event.group_id||''),placeType:String(current.place_type||'activity'),
     suggestedGroupId:context.mode==='review'?String(event.suggested_group_id||''):'',
+    publication:expiryDetails_(current,context.mode==='place'?'place':'event'),approvedAsIs:approvalApplies_(current,context.mode==='place'?'place':'event'),
     title:current.title||source&&source.title||'Unnamed event',
     reviewReason:context.mode==='review'?String(event.issue||'Review event'): 'Edit event information',
     existing:fields(current),incoming:fields(source||current),
@@ -142,6 +146,7 @@ function vrUpdateRow_(tab, rowNumber, updates){
     }
   });
   sh.getRange(rowNumber,1,1,headings.length).setValues([values]);
+  markPipelineDirty_();
 }
 function vrNative_(key,value){
   const val=String(value===null||value===undefined?'':value).trim();
@@ -163,7 +168,11 @@ function saveVisualDecision(payload){
   try {
     const sheet=SpreadsheetApp.getActiveSpreadsheet();
     const source=vrRows_('Events').find(r=>String(r.id)===String(payload.sourceId));
-    const action=String(payload.action||'edit');
+    let action=String(payload.action||'edit');
+    if(payload.mode==='holding'){const held=researchHoldingRecord_(payload.groupId);if(!held)throw new Error('Research entry no longer exists.');return saveHoldingReviewLocked_(payload,held);}
+    if(action==='research'){if(!source||String(source.group_id)!==String(payload.groupId))throw new Error('Source changed.');const record=canonicalObjects_()[String(payload.suggestedGroupId||payload.groupId)]||source;if(payload.reviewVersion&&visualVersion_(record)!==payload.reviewVersion)throw new Error('Entry changed. Reopen it.');parkResearchLocked_([String(payload.groupId)]);return {ok:true,destination:HOLDING.TAB};}
+    if(payload.approveAsIs&&!dateKey_((payload.fields||{}).start_date)&&payload.mode!=='place'&&['edit','dismiss'].includes(action)){if(!payload.publication||payload.publication.expiry_mode==='event')throw new Error('An undated listing needs an offer expiry or Ongoing; it will go to Places & Activities.');action='place';}
+    if(!source||source.status===CONFIG.STATUS.REJECTED||['research','trash','not_local'].includes(source.match_status))throw new Error('This listing was removed or parked. Reopen it from its current tab.');
     if(action==='return_event'){const place=vrRows_(PIPE.PLACES).find(r=>String(r.group_id)===String(payload.groupId));if(payload.mode!=='place'||!place)throw new Error('Select a saved place first.');if(payload.reviewVersion&&visualVersion_(place)!==payload.reviewVersion)throw new Error('This entry changed. Reopen it before restoring.');restorePlaceToEvent_(String(payload.groupId));refreshEventViews_();fixEventDateTimeDisplay();return {ok:true,destination:'Events'};}
     if(!['edit','merge','separate','dismiss','duplicate','not_local','place','copy_place'].includes(action))throw new Error('Unknown decision.');
     if(payload.reviewVersion&&!['duplicate','not_local','separate'].includes(action)&&!(['place','copy_place'].includes(action)&&payload.suggestedGroupId)){
@@ -175,6 +184,13 @@ function saveVisualDecision(payload){
     VISUAL_FIELDS.filter(k=>action!=='not_local' && !((action==='place'||action==='copy_place'||payload.mode==='place') && /_(date|time)$/.test(k))).forEach(k=>{
       if(Object.prototype.hasOwnProperty.call(payload.fields||{},k))updated[k]=vrNative_(k,payload.fields[k]);
     });
+    if(!['not_local','duplicate'].includes(action)){
+      const kind=(action==='place'||action==='copy_place'||payload.mode==='place')?'place':'event';
+      const base=(kind==='place'&&payload.suggestedGroupId?source:canonicalObjects_()[String(payload.suggestedGroupId||payload.groupId)])||source||{};
+      const preview=Object.assign({},base,updated,{group_id:action==='merge'?String(payload.suggestedGroupId||payload.groupId):String(payload.groupId)});
+      if(payload.posterChoice==='incoming'&&source)preview.original_image_file_id=source.original_image_file_id;
+      prepareListingSettings_(preview,kind,payload);
+    }
     if(action!=='not_local'&&action!=='duplicate'){
       const finalId=action==='merge'?String(payload.suggestedGroupId||payload.groupId):String(payload.groupId);
       const prior=canonicalObjects_()[finalId]||{};
@@ -209,6 +225,7 @@ function saveVisualDecision(payload){
         placeSheet.getRange(place?place._row:placeSheet.getLastRow()+1,1,1,PIPE.PLACE_HEADERS.length).setValues([PIPE.PLACE_HEADERS.map(k=>nativeEventCell_(k,record[k]||''))]);
         if(action==='place')related.forEach(r=>vrUpdateRow_('Events',r._row,{match_status:'place',review_reason:'',suggested_group_id:''}));
       }
+      if(action!=='not_local'){const final=vrRows_(PIPE.PLACES).find(r=>String(r.group_id)===groupId);saveListingSettings_(final,'place',payload);}else enqueueRemovalLocked_(['event:'+groupId,'place:'+groupId]);
       refreshEventViews_();fixEventDateTimeDisplay();
       return {ok:true,groupId,destination:action==='not_local'?'excluded':PIPE.PLACES};
     }
@@ -252,7 +269,8 @@ function saveVisualDecision(payload){
       if(row)rev.deleteRow(row._row);
     }
     if(payload.applySharedVenue && !['duplicate','not_local','place','copy_place'].includes(action))applySharedVenue_(source,payload.sharedVenueIds||[],updated);
-    // Rebuild under the same script lock used by the collector; remove provisional duplicates.
+    if(action!=='duplicate'){const final=vrRows_(PIPE.UPCOMING).find(r=>String(r.group_id)===groupId);saveListingSettings_(final,'event',payload);}
+    // Rebuild after the short, validated sheet write.
     refreshEventViews_();
     fixEventDateTimeDisplay();
     return {ok:true,groupId};

@@ -50,6 +50,7 @@ function canonicalObjects_(){
   const byId={};[PIPE.RECORDS,PIPE.UPCOMING,PIPE.PLACES].forEach(function(name){const sh=SpreadsheetApp.openById(getSettings_().spreadsheetId).getSheetByName(name);if(sh)readObjects_(sh).forEach(function(r){if(name!==PIPE.PLACES||!byId[String(r.group_id)])byId[String(r.group_id)]=r;});});return byId;
 }
 function writeCanonicalPatch_(groupId,patch){
+  markPipelineDirty_();
   const ss=SpreadsheetApp.openById(getSettings_().spreadsheetId);
   [PIPE.RECORDS,PIPE.UPCOMING,PIPE.PLACES].forEach(function(name){const sh=ss.getSheetByName(name);if(!sh)return;const row=readObjects_(sh).find(function(r){return String(r.group_id)===String(groupId);});if(!row)return;
     const heads=sh.getRange(1,1,1,sh.getLastColumn()).getValues()[0],values=sh.getRange(row._row,1,1,heads.length).getValues()[0];
@@ -57,9 +58,9 @@ function writeCanonicalPatch_(groupId,patch){
   });
 }
 /** Standalone menu/trigger entry point uses the same collector lock. */
-function processCompanions(){const lock=LockService.getScriptLock();lock.waitLock(20000);try{processCompanions_(Date.now()+240000);}finally{lock.releaseLock();}}
+function processCompanions(){return processCompanions_(Date.now()+240000);}
 function reserveCompanionCall_(){
-  // Caller already holds the script lock (collector or processCompanions).
+  // Reserved under a short data lock; never held during image analysis.
   const props=PropertiesService.getScriptProperties(),day=Utilities.formatDate(new Date(),'Asia/Karachi','yyyy-MM-dd');
   const configured=Number(props.getProperty('COMPANION_DAILY_LIMIT')||COMPANION.DAILY_LIMIT);
   if(!Number.isInteger(configured)||configured<1||configured>100)throw new Error('COMPANION_DAILY_LIMIT must be an integer from 1 to 100.');
@@ -68,11 +69,13 @@ function reserveCompanionCall_(){
   if(usage.count>=configured)return false;
   usage.count++;props.setProperty('COMPANION_USAGE',JSON.stringify(usage));return true;
 }
-function processCompanions_(deadline){
-  refreshEventViews_();
+function processCompanions_(deadline){return withJobLease_('companions',function(){return processCompanionsWorker_(deadline);});}
+function processCompanionsWorker_(deadline){
+  if(geminiBusyUntil_()>Date.now())return;
+  withDataLock_(function(){if(PropertiesService.getScriptProperties().getProperty('PIPELINE_DIRTY')==='1')refreshEventViews_();});
   const raw=ensureEventsSheet_(),checks=table_(COMPANION.TAB,COMPANION.HEADERS),done={};
   readObjects_(checks).forEach(function(x){done[String(x.pair_key)]=x;});
-  const sources=readObjects_(raw).filter(function(r){return r.id&&r.status!==CONFIG.STATUS.ERROR&&r.status!==CONFIG.STATUS.REJECTED&&r.match_status!=='not_local';});
+  const sources=readObjects_(raw).filter(function(r){return r.id&&r.status!==CONFIG.STATUS.ERROR&&r.status!==CONFIG.STATUS.REJECTED&&!['not_local','research','trash'].includes(r.match_status);});
   // Always prioritise fresh uploads, and rotate through older unresolved sources
   // so a quota-limited backlog cannot silently age out of the scanning window.
   const props=PropertiesService.getScriptProperties(),half=Math.floor(COMPANION.RECENT_SOURCES/2);
@@ -109,18 +112,27 @@ function processCompanions_(deadline){
     const pair=pairs[i];
     // Re-read after each merge: earlier calls may already have resolved this source.
     const current=readObjects_(raw),a=current.find(function(r){return String(r.id)===String(pair.a.id);}),b=current.find(function(r){return String(r.id)===String(pair.b.id);});
-    if(!a||!b||['manual','separate','place','companion','not_local'].indexOf(b.match_status)>=0)continue;
+    if(!a||!b||['manual','separate','place','companion','not_local','research','trash'].indexOf(b.match_status)>=0)continue;
     const alternatives=pairs.filter(function(p){return p.b.id===pair.b.id&&p.a.group_id!==pair.a.group_id&&p.match.score>=pair.match.score-0.12;});
-    if(!reserveCompanionCall_()){console.log('Daily companion-check limit reached. Remaining checks resume tomorrow.');break;}
-    let result,outcome='error',reason='',combined='';calls++;
-    try{
-      result=checkCompanionImages_(a,b,current,canonicalObjects_());
-      outcome=applyCompanionResult_(a,b,result,{strong:pair.match.strong,ambiguous:alternatives.length>0});
-      reason=result.reason||'';combined=JSON.stringify(result);
-    }catch(e){reason=truncate_(e.message,700);console.error('Companion '+pair.key+': '+reason);}
-    const row=done[pair.key]&&done[pair.key]._row||checks.getLastRow()+1;
-    checks.getRange(row,1,1,COMPANION.HEADERS.length).setValues([[pair.key,a.id,b.id,outcome,reason,combined,new Date().toISOString()]]);
-    refreshEventViews_();
+    const canonical = canonicalObjects_();
+    const stampA = rawGroupVersion_(a.group_id), stampB = rawGroupVersion_(b.group_id);
+    const factsA = visualVersion_(canonical[String(a.group_id)] || a), factsB = visualVersion_(canonical[String(b.group_id)] || b);
+    let result = deterministicCompanion_(a, b), outcome = 'error', reason = '', combined = '';
+    if (!result) {
+      if (geminiBusyUntil_() > Date.now()) break;
+      if (!withDataLock_(reserveCompanionCall_)) break;
+      calls++;
+      try { result = checkCompanionImages_(a, b, current, canonical); }
+      catch (e) { reason = truncate_(e.message, 700); if (isTransientGeminiError_(e)) break; }
+    }
+    withDataLock_(function () {
+      const live = readObjects_(raw), liveA = live.find(r => String(r.id) === String(a.id)), liveB = live.find(r => String(r.id) === String(b.id)), saved = canonicalObjects_();
+      if (!liveA || !liveB || rawGroupVersion_(a.group_id) !== stampA || rawGroupVersion_(b.group_id) !== stampB || visualVersion_(saved[String(a.group_id)] || liveA) !== factsA || visualVersion_(saved[String(b.group_id)] || liveB) !== factsB) { console.log('Companion changed during analysis; deferred.'); return; }
+      if (result) { outcome = applyCompanionResult_(liveA, liveB, result, {strong: pair.match.strong, ambiguous: alternatives.length > 0}); reason = result.reason || ''; combined = JSON.stringify(result); }
+      const existing = readObjects_(checks).find(r => r.pair_key === pair.key);
+      checks.getRange(existing ? existing._row : checks.getLastRow() + 1, 1, 1, COMPANION.HEADERS.length).setValues([[pair.key, a.id, b.id, outcome, reason, combined, new Date().toISOString()]]);
+      if (PropertiesService.getScriptProperties().getProperty('PIPELINE_DIRTY') === '1') refreshEventViews_();
+    });
     if(outcome==='error'&&/429|quota|rate limit/i.test(reason))break;
   }
   console.log('Companion calls: '+calls+'; candidates remaining: '+Math.max(0,pairs.length-calls));
@@ -234,4 +246,23 @@ function collateVisualDescriptions(payload){
   ].join('\n')}]}],generationConfig:{temperature:0.1,responseMimeType:'application/json',responseSchema:schema}});
   const result=parseGeminiJson_(response.text);if(typeof result.description!=='string'||result.description.length>10000)throw new Error('Invalid combined description.');
   return {description:result.description,warnings:Array.isArray(result.warnings)?result.warnings:[],cached:false};
+}
+
+/** Only strong, compatible identities are merged without another AI call. */
+function deterministicCompanion_(a, b) {
+  const ca = companionClues_(a), cb = companionClues_(b), ta = screenshotMoment_(a), tb = screenshotMoment_(b);
+  if (ta === null || tb === null || Math.abs(ta - tb) > 90000) return null;
+  if (/reschedul|postpon|cancel|relocat/i.test(String(a.extraction_notes || '') + ' ' + String(b.extraction_notes || ''))) return null;
+  if (conflictingFields_(a, b).length) return null;
+  const sameDate = dateKey_(a.start_date) && dateKey_(a.start_date) === dateKey_(b.start_date);
+  const identity = titleSimilarity_(a.title, b.title) >= .9;
+  const contact = normalizedContact_(a.contact) && normalizedContact_(a.contact) === normalizedContact_(b.contact);
+  const booking = blank_(a.registration_url) && wordKey_(a.registration_url) === wordKey_(b.registration_url);
+  if (!sameDate || !identity || !(contact || booking)) return null;
+  const combined = Object.assign({}, a, ca);
+  eventFields_().forEach(k => { if (!blank_(combined[k]) && blank_(b[k])) combined[k] = b[k]; });
+  combined.categories = String(a.categories || b.categories || '').split(/\s*[|,]\s*/).filter(Boolean);
+  combined.uncertain_fields = [];
+  combined.description = [blank_(a.description), blank_(b.description)].filter((v, i, all) => v && all.indexOf(v) === i).join('\n\n');
+  return {relation: 'same_event', confidence: 'high', conflicts: [], reason: 'Matching date, title and contact/booking in adjacent screenshots', combined: combined};
 }

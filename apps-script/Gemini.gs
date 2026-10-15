@@ -12,9 +12,11 @@ function extractEventFromPoster_(blob, filename, companionBlobs) {
     '',
     'Read this screenshot carefully. It may advertise an event, an evergreen place/activity, or only one slide of a carousel. Return a separate item for each genuinely separate listing. Multiple days of one event can remain one item. Extract only information supported by the image.',
     'For an address-only/contact-only slide, return a partial item with null missing fields; do not invent its event name or date. Preserve visible matching clues.',
-    'Set listing_kind to event, place, partial or unknown. A gym/riding club/attraction/day-trip destination without a specific dated session is a place; a dated session at that business is an event. Never fabricate dates for places.',
+    'Set listing_kind to event, place, course, recurring, ad, partial or unknown. A gym/riding club/attraction/day-trip destination without a specific dated session is a place; a dated session at that business is an event. Never fabricate dates for places.',
     'Record visible_text (literal relevant text, maximum 3000 characters), visible Instagram handles, any event-specific booking link/reference, and visible carousel_index/carousel_total. Use null for absent carousel numbers. Do not confuse capture/upload dates with event dates.',
     'When several screenshots are supplied, read them as one confirmed post. Return EVERY distinct workshop/event, even when the images share design or venue. An overview slide and detail slide for the same session are one item. Apply a clearly shared venue/address/contact to all relevant workshops unless separate locations are shown. Preserve distinct dates, times, prices and titles. Missing fields stay null.',
+    'Return poster_box as [left,top,right,bottom] on a 0..1000 scale for the COMPLETE promotional artwork in THIS image. Exclude phone bars, Instagram controls and surrounding caption text; keep all poster details and branding. For multiple listings on the same image use the same whole-poster box for every listing. An already cropped poster uses [0,0,1000,1000]. poster_confidence is high only when a complete clean promotional crop is clear. Never classify a private message or personal screenshot as a promotional poster. Use low confidence when no clean promotional crop exists.',
+    'promotion_end_date is the explicit expiry/deadline of an offer, YYYY-MM-DD, or null. Never invent a 90-day validity or treat the screenshot date as an offer deadline. Courses and recurring activities without a specific dated session are not missing-date events.',
     'Do not invent missing facts.',
     'The event is expected to be relevant to Islamabad, Pakistan, but do not use that expectation to fill missing venue/address details.',
     '',
@@ -85,8 +87,11 @@ function getSingleEventSchema_() {
   return {
     type: 'OBJECT',
     properties: {
-      listing_kind:{type:'STRING',enum:['event','place','partial','unknown']},
-      place_type:{type:'STRING',enum:['activity','attraction','day_trip','restaurant']},
+      poster_box:{type:'ARRAY',items:{type:'NUMBER'}},
+      poster_confidence:{type:'STRING',enum:['high','medium','low']},
+      promotion_end_date:{type:'STRING',nullable:true},
+      listing_kind:{type:'STRING',enum:['event','place','course','recurring','ad','partial','unknown']},
+      place_type:{type:'STRING',enum:['activity','experience','course','recurring_event','attraction','day_trip','restaurant']},
       visible_text:{type:'STRING',nullable:true},
       visible_handles:{type:'ARRAY',items:{type:'STRING'}},
       booking_reference:{type:'STRING',nullable:true},
@@ -121,7 +126,7 @@ function getSingleEventSchema_() {
       extraction_notes: { type: 'STRING', nullable: true }
     },
     required: [
-      'listing_kind','place_type','visible_text','visible_handles','booking_reference','carousel_index','carousel_total',
+      'poster_box','poster_confidence','promotion_end_date','listing_kind','place_type','visible_text','visible_handles','booking_reference','carousel_index','carousel_total',
       'title',
       'start_date',
       'end_date',
@@ -153,8 +158,11 @@ function normalizeExtraction_(x) {
 
   return {
     companion_clues:{
-      listing_kind:['event','place','partial','unknown'].indexOf(x.listing_kind)>=0?x.listing_kind:'unknown',
-      place_type:['activity','attraction','day_trip','restaurant'].indexOf(x.place_type)>=0?x.place_type:'activity',
+      poster_box:validCrop_(x.poster_box)?x.poster_box:null,
+      poster_confidence:['high','medium','low'].includes(x.poster_confidence)?x.poster_confidence:'low',
+      promotion_end_date:dateKey_(x.promotion_end_date),
+      listing_kind:['event','place','course','recurring','ad','partial','unknown'].indexOf(x.listing_kind)>=0?x.listing_kind:'unknown',
+      place_type:['activity','experience','course','recurring_event','attraction','day_trip','restaurant'].indexOf(x.place_type)>=0?x.place_type:'activity',
       visible_text:truncate_(cleanNullable_(x.visible_text)||'',3000),
       visible_handles:cleanArray_(x.visible_handles),booking_reference:cleanNullable_(x.booking_reference),
       carousel_index:Number.isInteger(x.carousel_index)&&x.carousel_index>0?x.carousel_index:null,
@@ -181,14 +189,27 @@ function normalizeExtraction_(x) {
   };
 }
 
-/** Shared HTTP wrapper; no quota retry or paid-model fallback. */
+/** Shared HTTP wrapper. Transient failures pause calls until a later trigger; never switch to paid models. */
+function geminiBusyUntil_(){return Number(PropertiesService.getScriptProperties().getProperty('GEMINI_BUSY_UNTIL')||0);}
+function isTransientGeminiError_(error){return !!(error&&error.geminiTransient)||/Gemini HTTP (408|429|500|502|503|504)|Gemini temporarily busy/i.test(String(error&&error.message||error));}
+function geminiRetryError_(message,until){const e=new Error(message);e.geminiTransient=true;e.retryAt=until;return e;}
 function geminiRequest_(model,payload){
-  const settings=getSettings_();
+  const settings=getSettings_(),props=PropertiesService.getScriptProperties(),busy=geminiBusyUntil_();
+  if(busy>Date.now())throw geminiRetryError_('Gemini temporarily busy. Automatic retry after '+new Date(busy).toISOString(),busy);
   const response=UrlFetchApp.fetch(CONFIG.API_BASE+encodeURIComponent(model)+':generateContent',{
     method:'post',contentType:'application/json',headers:{'x-goog-api-key':settings.apiKey},payload:JSON.stringify(payload),muteHttpExceptions:true
   });
   const code=response.getResponseCode(),body=response.getContentText();
+  if(typeof recordGeminiUsage_==='function')recordGeminiUsage_(payload,code);
+  if([408,429,500,502,503,504].includes(code)){
+    const failures=Math.min(6,Number(props.getProperty('GEMINI_BUSY_COUNT')||0)+1),headers=response.getAllHeaders?response.getAllHeaders():{},retryHeader=Object.keys(headers).find(k=>k.toLowerCase()==='retry-after');
+    let retry=retryHeader?Number(headers[retryHeader])*1000:0;if(!isFinite(retry)||retry<0)retry=0;
+    const delay=Math.min(3600000,Math.max(retry,(code===429?15:2)*60000*Math.pow(2,failures-1))),until=Date.now()+delay;
+    props.setProperties({GEMINI_BUSY_UNTIL:String(until),GEMINI_BUSY_COUNT:String(failures)});
+    throw geminiRetryError_('Gemini HTTP '+code+': temporarily unavailable. Retrying after '+new Date(until).toISOString()+'. '+truncate_(body,500),until);
+  }
   if(code<200||code>=300)throw new Error('Gemini HTTP '+code+': '+truncate_(body,700));
+  props.deleteProperty('GEMINI_BUSY_UNTIL');props.deleteProperty('GEMINI_BUSY_COUNT');
   let envelope;try{envelope=JSON.parse(body);}catch(e){throw new Error('Gemini returned invalid response JSON.');}
   const candidate=envelope.candidates&&envelope.candidates[0];
   const parts=candidate&&candidate.content&&candidate.content.parts||[];
