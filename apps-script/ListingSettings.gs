@@ -1,4 +1,4 @@
-const LISTING_SETTINGS = {TAB: 'Listing Settings', HEADERS: ['listing_id','approved_as_is','approval_signature','expiry_mode','valid_until','location_note','updated_at']};
+const LISTING_SETTINGS = {TAB: 'Listing Settings', HEADERS: ['listing_id','approved_as_is','approval_signature','expiry_mode','valid_until','location_note','updated_at','area']};
 function listingSettings_(record, kind) {
   return readOptionalRows_(LISTING_SETTINGS.TAB).find(r => String(r.listing_id) === kind + ':' + record.group_id) || {};
 }
@@ -33,12 +33,15 @@ function prepareListingSettings_(record, kind, payload) {
   const approved = !!payload.approveAsIs, note = String(input.location_note || '').trim().slice(0,1200);
   if (approved && !blank_(record.title)) throw new Error('Give this listing a title before approval.');
   if (approved && !blank_(record.venue) && !blank_(record.address) && !note) throw new Error('Explain the missing location, for example “Meeting point supplied after booking”.');
-  const row = {listing_id: kind + ':' + record.group_id, approved_as_is: approved ? 'yes' : '', approval_signature: approved ? approvalSignature_(record) : '', expiry_mode: mode, valid_until: mode === 'until' ? until : '', location_note: note, updated_at: new Date().toISOString()};
+  const row = {listing_id: kind + ':' + record.group_id, approved_as_is: approved ? 'yes' : '', approval_signature: approved ? approvalSignature_(record) : '', expiry_mode: mode, valid_until: mode === 'until' ? until : '', location_note: note, updated_at: new Date().toISOString(), area: String(input.area === undefined ? previous.area || '' : input.area).trim().slice(0,120)};
   return row;
 }
 function saveListingSettings_(record,kind,payload){
-  const row=prepareListingSettings_(record,kind,payload);if(!row)return;
-  const previous=listingSettings_(record,kind),sh=table_(LISTING_SETTINGS.TAB,LISTING_SETTINGS.HEADERS);
+  const row=prepareListingSettings_(record,kind,payload);savePreparedListingSettings_(row);
+}
+function savePreparedListingSettings_(row){
+  if(!row)return;
+  const previous=readOptionalRows_(LISTING_SETTINGS.TAB).find(r=>r.listing_id===row.listing_id)||{},sh=table_(LISTING_SETTINGS.TAB,LISTING_SETTINGS.HEADERS);
   sh.getRange(previous._row || sh.getLastRow() + 1, 1, 1, LISTING_SETTINGS.HEADERS.length).setValues([LISTING_SETTINGS.HEADERS.map(k => nativeEventCell_(k, row[k] || ''))]);
   markPipelineDirty_();
 }

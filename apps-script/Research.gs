@@ -18,11 +18,11 @@ function researchVisualDetails(payload){
   const source=vrRows_(PIPE.RAW).find(function(r){return String(r.id)===String(payload.sourceId)&&r.status!==CONFIG.STATUS.REJECTED;});
   if(!source||String(source.group_id)!==String(payload.groupId))throw new Error('This record changed. Close and reopen it.');
   const facts={};VISUAL_FIELDS.forEach(function(k){facts[k]=truncate_(String((payload.fields||{})[k]||''),3000);});
-  const missing=RESEARCH.FIELDS.filter(function(k){return !(payload.mode==='place'&&/_(date|time)$/.test(k))&&!blank_(facts[k]);});
+  const missing=(payload.scope==='venue'?['address']:RESEARCH.FIELDS).filter(function(k){return !(payload.mode==='place'&&/_(date|time)$/.test(k))&&!blank_(facts[k]);});
   if(!missing.length)throw new Error('No supported fields are missing. Clear the final value of a field to research a correction.');
   const clues=companionClues_(source);
   if(![facts.title,facts.venue,facts.organizer,facts.source_account,facts.contact,facts.registration_url].concat(clues.visible_handles||[]).some(function(v){return blank_(v);}))throw new Error('Need a name, organiser, account, phone or website to identify this listing.');
-  const key=digestKey_(JSON.stringify({group:source.group_id,facts:facts,missing:missing,model:settings.model,version:1}));
+  const key=digestKey_(JSON.stringify(payload.scope==='venue'?{venue:venueKey_(facts),address:facts.address,model:settings.model,version:2}:{group:source.group_id,facts:facts,missing:missing,model:settings.model,version:1}));
   const lock=LockService.getScriptLock();lock.waitLock(20000);let cacheRow;
   try{
     const cache=table_(RESEARCH.TAB,RESEARCH.HEADERS);cacheRow=readObjects_(cache).find(function(r){return r.research_key===key;});
@@ -77,7 +77,7 @@ function researchVisualDetails(payload){
 /** Store source URLs only for researched values explicitly chosen and actually saved. */
 function chosenResearchEvidence_(payload,prior){
   if(!payload.researchKey||!Array.isArray(payload.researchSelections)||!payload.researchSelections.length)return null;
-  const row=readObjects_(table_(RESEARCH.TAB,RESEARCH.HEADERS)).find(function(r){return r.research_key===payload.researchKey&&String(r.group_id)===String(payload.groupId);});
+  const row=readObjects_(table_(RESEARCH.TAB,RESEARCH.HEADERS)).find(function(r){return r.research_key===payload.researchKey;});
   if(!row)throw new Error('Research evidence is unavailable. Run Find missing details again.');
   const result=JSON.parse(row.result_json),evidence=[];
   payload.researchSelections.slice(0,12).forEach(function(index){

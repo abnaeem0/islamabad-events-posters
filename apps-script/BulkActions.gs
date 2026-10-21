@@ -35,7 +35,7 @@ function selectionGroupIds_(sheet,ranges){
 function bulkVersion_(groupId,tab){
   const record=(tab===PIPE.PLACES?vrRows_(PIPE.PLACES):visualEventRows_()).find(r=>String(r.group_id)===String(groupId));
   if(!record)throw new Error('Selected entry no longer exists.');
-  return digestKey_(JSON.stringify({record:record,states:vrRows_(PIPE.RAW).filter(r=>String(r.group_id)===String(groupId)).map(r=>[r.id,r.status,r.match_status,r.suggested_group_id,r.review_reason])}));
+  return digestKey_(JSON.stringify({record:VISUAL_FIELDS.map(k=>vrString_(record[k],k)).concat(record.group_id,record.original_image_file_id,record.place_type||'',record.event_snapshot||''),states:vrRows_(PIPE.RAW).filter(r=>String(r.group_id)===String(groupId)).map(r=>[r.id,r.status,r.match_status,r.suggested_group_id,r.review_reason])}));
 }
 function openBulkMove(){openBulkActions_('move');}function openBulkCopy(){openBulkActions_('copy');}function openBulkReturn(){openBulkActions_('return');}function openBulkLocation(){openBulkActions_('location');}
 function openBulkActions_(action){

@@ -105,7 +105,8 @@ function companionDraftForSource_(sourceId,targetGroup){
   if(!rows.length)return null;
   try{const result=JSON.parse(rows[rows.length-1].combined_json);if(!['same_event','same_place','uncertain'].includes(result.relation))return null;return {reason:result.reason||'',fields:normalizeExtraction_(result.combined||{})};}catch(e){return null;}
 }
-function getVisualReviewData(context){
+function getVisualReviewData(context){return withDataLock_(()=>getVisualReviewDataLocked_(context));}
+function getVisualReviewDataLocked_(context){
   const reviews=context.mode==='review'?vrRows_('Event Review'):[],incomingReview=reviews.find(r=>String(r.source_id)===String(context.sourceId));
   const upcoming=context.mode==='holding'?[researchHoldingRecord_(context.groupId)].filter(Boolean):context.mode==='place'?vrRows_(PIPE.PLACES):visualEventRows_();const sources=vrRows_('Events');
   const editing=context.mode!=='review';
@@ -118,10 +119,13 @@ function getVisualReviewData(context){
   const fields=(x)=>{const obj={};VISUAL_FIELDS.forEach(k=>obj[k]=vrString_(x&&x[k],k));return obj;};
   return {
     singleView:editing || (!event.suggested_group_id && /^Missing /.test(String(event.issue||''))),
+    cropSummary:cropRow_(String(current.original_image_file_id))||null,
+    posterGroupCount:source?posterGroupIds_(source.group_id).length:1,
     sharedVenueTargets:sharedVenueTargets_(source,current),
     mode:context.mode,sourceId:source&&String(source.id)||'',
-    groupId:editing?String(event.group_id):String(event.group_id||''),placeType:String(current.place_type||'uncategorized'),
+    groupId:editing?String(event.group_id):String(event.group_id||source&&source.group_id||''),placeType:String(current.place_type||'uncategorized'),
     suggestedGroupId:context.mode==='review'?String(event.suggested_group_id||''):'',
+    venueLocation:resolvedVenueLocation_(current,context.mode==='place'?'place':'event'),
     publication:expiryDetails_(current,context.mode==='place'?'place':'event'),approvedAsIs:approvalApplies_(current,context.mode==='place'?'place':'event'),
     title:current.title||source&&source.title||'Unnamed event',
     reviewReason:context.mode==='review'?String(event.issue||'Review event'): 'Edit event information',
@@ -170,13 +174,19 @@ function vrNative_(key,value){
 function saveVisualDecision(payload){
   const lock=LockService.getScriptLock();lock.waitLock(20000);
   try {
+    optionalReadCache_={};
     const sheet=SpreadsheetApp.getActiveSpreadsheet();
     const source=vrRows_('Events').find(r=>String(r.id)===String(payload.sourceId));
+    payload=Object.assign({},payload);
+    if(!payload.groupId&&source&&source.group_id)payload.groupId=String(source.group_id);
+    if(!payload.groupId)throw new Error('This entry has no group yet. Refresh event views, then reopen it.');
     let action=String(payload.action||'edit');
     if(payload.mode==='holding'){const held=researchHoldingRecord_(payload.groupId);if(!held)throw new Error('Research entry no longer exists.');return saveHoldingReviewLocked_(payload,held);}
     if(action==='research'){if(!source||String(source.group_id)!==String(payload.groupId))throw new Error('Source changed.');const record=canonicalObjects_()[String(payload.suggestedGroupId||payload.groupId)]||source;if(payload.reviewVersion&&visualVersion_(record)!==payload.reviewVersion)throw new Error('Entry changed. Reopen it.');parkResearchLocked_([String(payload.groupId)]);return {ok:true,destination:HOLDING.TAB};}
     if(payload.approveAsIs&&!dateKey_((payload.fields||{}).start_date)&&payload.mode!=='place'&&['edit','dismiss'].includes(action)){if(!payload.publication||payload.publication.expiry_mode==='event')throw new Error('An undated listing needs an offer expiry or Ongoing; it will go to Places & Activities.');action='place';}
+    if(source&&String(source.group_id)!==String(payload.groupId))throw new Error('This source moved to a different group. Reopen it before saving.');
     if(!source||source.status===CONFIG.STATUS.REJECTED||['research','trash','not_local'].includes(source.match_status))throw new Error('This listing was removed or parked. Reopen it from its current tab.');
+    if(action==='not_local_poster'){if(String(source.group_id)!==String(payload.groupId))throw new Error('This entry changed. Reopen it.');return excludePosterLocked_(payload.groupId);}
     if(action==='return_event'){const place=vrRows_(PIPE.PLACES).find(r=>String(r.group_id)===String(payload.groupId));if(payload.mode!=='place'||!place)throw new Error('Select a saved place first.');if(payload.reviewVersion&&visualVersion_(place)!==payload.reviewVersion)throw new Error('This entry changed. Reopen it before restoring.');restorePlaceToEvent_(String(payload.groupId));refreshEventViews_();fixEventDateTimeDisplay();return {ok:true,destination:'Events'};}
     if(!['edit','merge','separate','dismiss','duplicate','not_local','place','copy_place'].includes(action))throw new Error('Unknown decision.');
     if(payload.reviewVersion&&!['duplicate','not_local','separate'].includes(action)&&!(['place','copy_place'].includes(action)&&payload.suggestedGroupId)){
@@ -204,7 +214,7 @@ function saveVisualDecision(payload){
     if(payload.mode==='review'){
       const pending=vrRows_('Event Review').find(r=>String(r.source_id)===String(payload.sourceId));
       if(!pending)throw new Error('This item was already reviewed. Close and reopen the event.');
-      if(String(pending.group_id||'')!==String(payload.groupId||'') || String(pending.suggested_group_id||'')!==String(payload.suggestedGroupId||''))throw new Error('This match changed. Close and reopen the event.');
+      if(String(pending.group_id||source&&source.group_id||'')!==String(payload.groupId||'') || String(pending.suggested_group_id||'')!==String(payload.suggestedGroupId||''))throw new Error('This match changed. Close and reopen the event.');
       if(pending.suggested_group_id&&!['merge','separate','duplicate','not_local','place','copy_place'].includes(action))throw new Error('Choose a decision for this match.');
     }
     let groupId=String(payload.groupId||'');
@@ -226,10 +236,13 @@ function saveVisualDecision(payload){
         if(payload.posterChoice==='incoming')['original_image_file_id','original_image_url','original_filename'].forEach(k=>record[k]=source[k]||'');
         const related=vrRows_('Events').filter(r=>String(r.group_id)===groupId);
         record.source_count=related.length;
+        const settings=prepareListingSettings_(record,'place',payload);
         placeSheet.getRange(place?place._row:placeSheet.getLastRow()+1,1,1,PIPE.PLACE_HEADERS.length).setValues([PIPE.PLACE_HEADERS.map(k=>nativeEventCell_(k,record[k]||''))]);
+        savePreparedListingSettings_(settings);
+        saveConfirmedVenue_(record,payload);
         if(action==='place')related.forEach(r=>vrUpdateRow_('Events',r._row,{match_status:'place',review_reason:'',suggested_group_id:''}));
       }
-      if(action!=='not_local'){const final=vrRows_(PIPE.PLACES).find(r=>String(r.group_id)===groupId);saveListingSettings_(final,'place',payload);}else enqueueRemovalLocked_(['event:'+groupId,'place:'+groupId]);
+      if(action==='not_local')enqueueRemovalLocked_(['event:'+groupId,'place:'+groupId]);
       refreshEventViews_();fixEventDateTimeDisplay();
       return {ok:true,groupId,destination:action==='not_local'?'excluded':PIPE.PLACES};
     }
@@ -273,7 +286,7 @@ function saveVisualDecision(payload){
       if(row)rev.deleteRow(row._row);
     }
     if(payload.applySharedVenue && !['duplicate','not_local','place','copy_place'].includes(action))applySharedVenue_(source,payload.sharedVenueIds||[],updated);
-    if(action!=='duplicate'){const final=vrRows_(PIPE.UPCOMING).find(r=>String(r.group_id)===groupId);saveListingSettings_(final,'event',payload);}
+    if(action!=='duplicate'){const final=vrRows_(PIPE.UPCOMING).find(r=>String(r.group_id)===groupId);saveListingSettings_(final,'event',payload);saveConfirmedVenue_(final,payload);}
     // Rebuild after the short, validated sheet write.
     refreshEventViews_();
     fixEventDateTimeDisplay();
