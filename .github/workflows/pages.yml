@@ -1,0 +1,50 @@
+name: Build posters and publish website
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  schedule:
+    - cron: '17 * * * *'
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: false
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Configure Pages
+        id: pages
+        uses: actions/configure-pages@v5
+      - name: Export from Google and crop approved posters
+        env:
+          EXPORT_URL: ${{ secrets.EXPORT_URL }}
+          EXPORT_TOKEN: ${{ secrets.EXPORT_TOKEN }}
+          PUBLIC_URL: ${{ steps.pages.outputs.base_url }}
+        run: node scripts/sync.mjs
+      - name: Validate public files
+        run: node --test scripts/site.test.mjs
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+          retention-days: 1
+      - name: Publish
+        id: deployment
+        uses: actions/deploy-pages@v4
+      - name: Confirm deployment to spreadsheet
+        continue-on-error: true
+        env:
+          EXPORT_URL: ${{ secrets.EXPORT_URL }}
+          EXPORT_TOKEN: ${{ secrets.EXPORT_TOKEN }}
+        run: node scripts/sync.mjs --ack

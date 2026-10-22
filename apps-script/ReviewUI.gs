@@ -10,7 +10,7 @@ function onOpen() {
   ui.createMenu('Events').addItem('Review selected event','openVisualReview').addItem('Move to Places & Activities','moveUncategorized').addItem('Copy to Places & Activities','copyUncategorized').addSubMenu(move).addSubMenu(copy).addItem('Move selected to Research','moveSelectedToResearch').addItem('Return selected from Research','returnSelectedFromResearch').addItem('Move selected back to Events','returnSelectedToEvents').addItem('Set selected venue / address','openBulkLocation').addSubMenu(share).addSeparator().addItem('Remove selected to Trash','removeSelectedEntries').addItem('Restore selected Trash entries','restoreSelectedTrash').addSeparator().addItem('Check companion screenshots now','processCompanions').addItem('Refresh event views','refreshEventViews').addItem('Fix date and time display','fixEventDateTimeDisplay').addToUi();
 }
 function vrRows_(tab){
-  const sh=SpreadsheetApp.getActiveSpreadsheet().getSheetByName(tab);
+  const sh=SpreadsheetApp.openById(getSettings_().spreadsheetId).getSheetByName(tab);
   if(!sh)throw new Error('Missing sheet '+tab);
   if(sh.getLastRow()<2)return [];
   const vals=sh.getDataRange().getValues(), heads=vals[0];
@@ -64,7 +64,7 @@ function getVisualPoster(sourceId,fileId,previewOnly,forceDrive){
   if(fileId&&String(fileId)!==String(source.original_image_file_id)&&!attached)throw new Error('Image is not linked to this source.');
   const actual=String(attached?attached.fileId:source.original_image_file_id);
   const crop=cropRow_(actual);
-  if(previewOnly&&!forceDrive&&crop&&crop.public_asset_url&&crop.asset_signature===digestKey_(crop.crop_json))return {image:sharingConnection_().url+crop.public_asset_url,link:String(attached?attached.link:source.original_image_url||'')};
+  if(!githubPublishing_()&&previewOnly&&!forceDrive&&crop&&crop.public_asset_url&&crop.asset_signature===digestKey_(crop.crop_json))return {image:sharingConnection_().url+crop.public_asset_url,link:String(attached?attached.link:source.original_image_url||'')};
   return {image:vrImage_(attached?attached.fileId:source.original_image_file_id,previewOnly),link:String(attached?attached.link:source.original_image_url||'')};
 }
 function fixEventDateTimeDisplay(){
@@ -90,7 +90,7 @@ function openVisualReview(){
   SpreadsheetApp.getUi().showModalDialog(template.evaluate().setWidth(1160).setHeight(760),'Review event');
 }
 function visualEventRows_(){
-  const rows={},ss=SpreadsheetApp.getActiveSpreadsheet();
+  const rows={},ss=SpreadsheetApp.openById(getSettings_().spreadsheetId);
   [PIPE.RECORDS,PIPE.UPCOMING].forEach(name=>{const sh=ss.getSheetByName(name);if(sh)vrRows_(name).forEach(r=>rows[String(r.group_id)]=r);});
   return Object.keys(rows).map(k=>rows[k]);
 }
@@ -141,7 +141,7 @@ function getVisualReviewDataLocked_(context){
   };
 }
 function vrUpdateRow_(tab, rowNumber, updates){
-  const sh=SpreadsheetApp.getActiveSpreadsheet().getSheetByName(tab);
+  const sh=SpreadsheetApp.openById(getSettings_().spreadsheetId).getSheetByName(tab);
   const headings=sh.getRange(1,1,1,sh.getLastColumn()).getValues()[0];
   const values=sh.getRange(rowNumber,1,1,headings.length).getValues()[0];
   Object.keys(updates).forEach(k=>{

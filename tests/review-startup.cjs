@@ -1,0 +1,12 @@
+const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
+const {harness}=require('./harness.cjs');
+const h=harness();assert.equal(h.run(`normalizedContact_('["+923001234567","+923211234567"]')`),'+923001234567; +923211234567');assert.equal(h.run(`readableContact_("['+923001234567', '051-1234567']")`),'+923001234567; 051-1234567');assert.equal(h.run(`readableContact_('Call reception: 051-1234567')`),'Call reception: 051-1234567');
+const elements=new Map(),element=()=>({hidden:true,style:{},classList:{add(){},remove(){},toggle(){}},addEventListener(){},append(){},replaceChildren(){},getBoundingClientRect(){return {width:500,height:500}},focus(){}});
+const document={getElementById:id=>{if(!elements.has(id))elements.set(id,element());return elements.get(id)},querySelectorAll:()=>[],addEventListener(){},body:element()};
+let requested=0;const timers=new Map();let timerId=0;
+const runner={withSuccessHandler(){return this},withFailureHandler(){return this},getVisualReviewData(){requested++}};
+let script=fs.readFileSync('apps-script/ReviewDialog.html','utf8').match(/<script>([\s\S]*?)<\/script>/)[1].replace(/<\?!= scriptJson_\(context\) \?>/,JSON.stringify(JSON.stringify({mode:'edit',groupId:'test'})));
+vm.runInNewContext(script,{document,google:{script:{run:runner}},setTimeout:(f,ms)=>{timers.set(++timerId,{f,ms});return timerId},clearTimeout:id=>timers.delete(id),console,confirm:()=>true,window:{addEventListener(){}},Map,Set});
+assert.equal(requested,1,'Review must execute its initial data request');assert.equal(typeof elements.get('approveAsIs').onchange,'function');
+for(const t of timers.values())if(t.ms===20000)t.f();assert.match(elements.get('status').textContent,/longer than expected/);
+console.log('PASS: review boots, requests data, reports slow load; contacts retain all numbers without list syntax.');

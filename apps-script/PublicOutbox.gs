@@ -1,6 +1,7 @@
 /** Fenced removals survive network failures and cannot be undone by an older in-flight publish. */
 const PUBLIC_OUTBOX = {TAB:'Publication Outbox', HEADERS:['listing_id','revision','action','last_error','updated_at']};
 function enqueueRemovalLocked_(ids) {
+  if(githubPublishing_()){markPipelineDirty_();return;}
   const sh=table_(PUBLIC_OUTBOX.TAB,PUBLIC_OUTBOX.HEADERS);
   ids.forEach(id=>{
     const old=readObjects_(sh).find(r=>r.listing_id===id),revision=nextPublicRevision_();
@@ -8,6 +9,7 @@ function enqueueRemovalLocked_(ids) {
   });
 }
 function flushRemovalOutbox_() {
+  if(githubPublishing_())return; // The next complete GitHub snapshot applies removals.
   if(!sharingConnection_().token)return;
   const rows=readOptionalRows_(PUBLIC_OUTBOX.TAB);
   for(const row of rows){

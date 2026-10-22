@@ -1,0 +1,6 @@
+node_modules/
+.export-version
+.env
+*.log
+docs-staging/
+docs-previous/

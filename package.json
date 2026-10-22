@@ -1,0 +1,20 @@
+{
+  "name": "islamabad-out-and-about-pages",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "sync": "node scripts/sync.mjs",
+    "test": "node --test scripts/site.test.mjs"
+  },
+  "dependencies": {
+    "react": "19.2.6",
+    "react-dom": "19.2.6",
+    "jpeg-js": "0.4.4",
+    "fast-png": "8.0.0"
+  },
+  "devDependencies": {
+    "esbuild": "0.27.3"
+  }
+}

@@ -1,0 +1,10 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {mkdtemp,mkdir,writeFile,readFile,rm} from 'node:fs/promises';import {tmpdir} from 'node:os';import {join} from 'node:path';import jpeg from 'jpeg-js';import {buildExport} from './sync.mjs';
+test('crop, sanitize, fail safely on concurrent edit, and remove listings',async()=>{const root=await mkdtemp(join(tmpdir(),'events-export-')),out=root+'/docs';try{await mkdir(out+'/assets',{recursive:true});await writeFile(out+'/assets/app.js','');await writeFile(out+'/styles.css','');
+ const pixels=new Uint8Array(200*400*4).fill(255),data=jpeg.encode({width:200,height:400,data:pixels},88).data;
+ const m={version:'v1',items:[{item:{id:'event:E_1',kind:'event',title:'Safe <title>',start_date:'2099-01-01',published_at:'2026-10-21',registration_url:'javascript:alert(1)',secret:'private'},images:[{fileId:'private-drive-id',crop:[0,250,1000,750],ticket:'private-ticket'}]}]};
+ const download=async()=>({mime:'image/jpeg',data:Buffer.from(data).toString('base64')});
+ await buildExport(m,download,async()=>m,out);const before=await readFile(out+'/data/listings.json','utf8');assert(!before.includes('private'));const feed=JSON.parse(before);assert.equal(feed.items[0].registration_url,'');const decoded=jpeg.decode(await readFile(out+'/'+feed.items[0].poster));assert.equal(decoded.width,200);assert.equal(decoded.height,200);
+ await assert.rejects(buildExport(m,download,async()=>({version:'v2'}),out),/changed/);assert.equal(await readFile(out+'/data/listings.json','utf8'),before);
+ const textOnly={version:'text-only',items:[{item:m.items[0].item,images:[]}]};await buildExport(textOnly,()=>{throw new Error('No image download expected')},async()=>textOnly,out);assert.equal(JSON.parse(await readFile(out+'/data/listings.json')).items[0].poster,'');
+ await buildExport({version:'empty',items:[]},download,async()=>({version:'empty'}),out);assert.equal(JSON.parse(await readFile(out+'/data/listings.json')).items.length,0);
+ }finally{await rm(root,{recursive:true,force:true});}});
