@@ -22,7 +22,7 @@ export async function buildExport(manifest,getImage,verify,output='docs',prepare
  if(!manifest||!Array.isArray(manifest.items)||manifest.items.length>10000||typeof manifest.version!=='string')throw new Error('Invalid manifest');
  const stage=output+'-staging';await rm(stage,{recursive:true,force:true});await mkdir(stage+'/posters',{recursive:true});await mkdir(stage+'/assets',{recursive:true});await mkdir(stage+'/data',{recursive:true});
  for(const file of ['styles.css','assets/app.js'])await copyFile(output+'/'+file,stage+'/'+file);
- const cache=new Map(),fields=['id','kind','title','start_date','end_date','start_time','end_time','venue','address','area','organizer','price','contact','registration_url','description','categories','age_info','source_account','place_type','last_checked','published_at','location_note','valid_until','expiry_mode'];
+ const cache=new Map(),fields=['publication_hash','id','kind','title','start_date','end_date','start_time','end_time','venue','address','area','organizer','price','contact','registration_url','description','categories','age_info','source_account','place_type','last_checked','published_at','location_note','valid_until','expiry_mode'];
  const items=[];
  // Sequential source downloads avoid concurrent Apps Script/Drive quota pressure.
  for(const entry of manifest.items){

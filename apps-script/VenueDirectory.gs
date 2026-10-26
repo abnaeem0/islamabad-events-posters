@@ -55,10 +55,26 @@ function posterGroupIds_(groupId){
   vrRows_(PIPE.RAW).forEach(r=>{const images=[r.original_image_file_id].concat((companionClues_(r).source_images||[]).map(i=>i.fileId));if(r.group_id&&images.some(id=>files.has(String(id))))ids.add(String(r.group_id));});
   return Array.from(ids);
 }
-function excludePosterLocked_(groupId){
-  const ids=posterGroupIds_(groupId),places=table_(PIPE.PLACES,PIPE.PLACE_HEADERS);
-  vrRows_(PIPE.RAW).filter(r=>ids.includes(String(r.group_id))).forEach(r=>vrUpdateRow_(PIPE.RAW,r._row,{status:CONFIG.STATUS.REJECTED,match_status:'not_local',review_reason:'Excluded: poster is not local',suggested_group_id:''}));
-  vrRows_(PIPE.PLACES).filter(r=>ids.includes(String(r.group_id))).sort((a,b)=>b._row-a._row).forEach(r=>places.deleteRow(r._row));
-  enqueueRemovalLocked_(ids.reduce((out,id)=>out.concat(['event:'+id,'place:'+id]),[]));
-  refreshEventViews_();return {ok:true,destination:'excluded',count:ids.length};
+function exclusionVersion_(id){
+ const raw=vrRows_(PIPE.RAW).filter(r=>String(r.group_id)===String(id));
+ return digestKey_(JSON.stringify(raw.map(r=>[r.id,r.group_id,r.status,r.match_status,r.original_image_file_id]).sort((a,b)=>String(a[0]).localeCompare(String(b[0])))));
+}
+function reviewPosterTargets_(source,current){
+ if(!source)return [];
+ const records=visualEventRows_().concat(vrRows_(PIPE.PLACES)),seen=new Set(),currentId=String(source.group_id);
+ return vrRows_(PIPE.RAW).filter(r=>String(r.original_image_file_id)===String(source.original_image_file_id)&&r.group_id&&r.status!==CONFIG.STATUS.REJECTED&&!['research','trash','not_local'].includes(r.match_status)).filter(r=>{const id=String(r.group_id);if(seen.has(id))return false;seen.add(id);return true;}).map(r=>{const id=String(r.group_id),record=records.find(x=>String(x.group_id)===id)||r;return {groupId:id,title:String(record.title||r.title||'Unnamed listing'),version:exclusionVersion_(id),current:id===currentId};});
+}
+function excludeSelectedPosterListingsLocked_(source,items){
+ if(!Array.isArray(items)||!items.length||items.length>100)throw new Error('Tick at least one listing. Nothing was excluded.');
+ const allowed=reviewPosterTargets_(source,{group_id:source.group_id}),seen=new Set();
+ items.forEach(item=>{const id=String(item.groupId||'');if(seen.has(id))throw new Error('Repeated selection.');seen.add(id);const target=allowed.find(x=>x.groupId===id);if(!target||target.version!==item.version)throw new Error('A selected listing changed or is not on this poster. Reopen review.');});
+ return excludeGroupsLocked_(Array.from(seen),'Excluded: selected listing is not local');
+}
+function excludePosterLocked_(groupId){return excludeGroupsLocked_(posterGroupIds_(groupId),'Excluded: poster is not local');}
+function excludeGroupsLocked_(ids,reason){
+ const places=table_(PIPE.PLACES,PIPE.PLACE_HEADERS);
+ vrRows_(PIPE.RAW).filter(r=>ids.includes(String(r.group_id))).forEach(r=>vrUpdateRow_(PIPE.RAW,r._row,{status:CONFIG.STATUS.REJECTED,match_status:'not_local',review_reason:reason,suggested_group_id:''}));
+ vrRows_(PIPE.PLACES).filter(r=>ids.includes(String(r.group_id))).sort((a,b)=>b._row-a._row).forEach(r=>places.deleteRow(r._row));
+ enqueueRemovalLocked_(ids.reduce((out,id)=>out.concat(['event:'+id,'place:'+id]),[]));
+ refreshEventViews_();return {ok:true,destination:'excluded',count:ids.length};
 }

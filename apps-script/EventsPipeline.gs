@@ -159,6 +159,7 @@ function refreshEventViews_() {
   });
   // Apply review choices before recomputing the queue. Process decisions only once.
   readObjects_(rev).forEach(function(r){
+    if(isPublicationReviewRow_(r))return;
     const action=blank_(r.action);if(!action)return;
     const s=source.find(function(x){return String(x.id)===String(r.source_id);});if(!s)return;
     if(action==='Merge suggested' && r.suggested_group_id) {
@@ -272,6 +273,7 @@ function refreshEventViews_() {
   // Moved events remain durable even while absent from active event views.
   const retained=new Set(recordRows.map(r=>String(r[0])));existing.forEach(r=>{if(inactiveGroups[String(r.group_id)]&&!excludedGroups[String(r.group_id)]&&!retained.has(String(r.group_id))){retained.add(String(r.group_id));recordRows.push(PIPE.UPCOMING_HEADERS.map(k=>nativeEventCell_(k,r[k])));}});
   writeView_(records,PIPE.UPCOMING_HEADERS,recordRows);
+  appendPublicationReviewRows_(review);
   writeView_(rev,PIPE.REVIEW_HEADERS,review.map(function(x){return PIPE.REVIEW_HEADERS.map(function(h){return nativeEventCell_(h,x[h]||'');});}));
   PropertiesService.getScriptProperties().deleteProperty('PIPELINE_DIRTY');
   console.log('Upcoming: '+rows.length+'; review: '+review.length);

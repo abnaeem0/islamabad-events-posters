@@ -1,0 +1,12 @@
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
+const elements=new Map(),elem=()=>({hidden:false,disabled:false,value:'',style:{},classList:{add(){},remove(){},toggle(){}},addEventListener(){},append(){},replaceChildren(){},focus(){}});
+let checked=[{value:'a'},{value:'c'}],submitted=null,confirmation='';
+const document={getElementById:id=>{if(!elements.has(id))elements.set(id,elem());return elements.get(id);},querySelectorAll:selector=>selector==='.shared-venue-choice:checked'?checked:[],addEventListener(){},body:elem()};
+const runner={withSuccessHandler(){return this},withFailureHandler(){return this},getVisualReviewData(){},saveVisualDecision(payload){submitted=payload;}};
+const context=vm.createContext({document,google:{script:{run:runner}},setTimeout:()=>1,clearTimeout(){},confirm:message=>{confirmation=message;return true;},console,window:{addEventListener(){}}});
+const script=fs.readFileSync('apps-script/ReviewDialog.html','utf8').match(/<script>([\s\S]*?)<\/script>/)[1].replace(/<\?!= scriptJson_\(context\) \?>/,JSON.stringify(JSON.stringify({mode:'edit',groupId:'a'})));
+vm.runInContext(script,context);elements.get('decision').value='not_local';
+vm.runInContext("data={mode:'edit',sourceId:'source',groupId:'a',posterTargets:[{groupId:'a',version:'1'},{groupId:'b',version:'2'},{groupId:'c',version:'3'}]};saveCurrent();",context);
+assert.deepEqual(Array.from(submitted.notLocalItems,x=>x.groupId),['a','c']);assert.match(confirmation,/exactly 2 ticked/);submitted=null;checked=[];
+vm.runInContext('busy=false;saved=false;saveCurrent();',context);assert.equal(submitted,null);assert.match(elements.get('status').textContent,/Tick at least one/);
+console.log('PASS: review submits only existing ticks, confirms count, and never defaults empty selection to all.');

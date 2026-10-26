@@ -6,7 +6,7 @@ function onOpen() {
   const ui=SpreadsheetApp.getUi();
   const move=ui.createMenu('Move and categorize'),copy=ui.createMenu('Copy and categorize');
   [['Activity / club / gym','Activities'],['Experience','Experiences'],['Course / classes','Courses'],['Recurring event / market','Recurring'],['Attraction','Attractions'],['Day trip','DayTrips'],['Restaurant / cafe','Restaurants']].forEach(x=>{move.addItem(x[0],'move'+x[1]);copy.addItem(x[0],'copy'+x[1]);});
-  const share=ui.createMenu('Sharing').addItem('Prepare selected for sharing','openPrepareSharing').addItem('Sync public posters now','syncPublicPosters').addItem('Publishing status','showPublicationStatus').addItem('Open public page','openPublicPage').addSeparator().addItem('Connect public page','connectPublicPage');
+  const share=ui.createMenu('Sharing').addItem('Prepare selected for sharing','openPrepareSharing').addItem('Sync public posters now','syncPublicPosters').addItem('Publishing status','showPublicationStatus').addItem('Audit website publishing','auditWebsitePublishing').addItem('Open public page','openPublicPage').addSeparator().addItem('Connect public page','connectPublicPage');
   ui.createMenu('Events').addItem('Review selected event','openVisualReview').addItem('Move to Places & Activities','moveUncategorized').addItem('Copy to Places & Activities','copyUncategorized').addSubMenu(move).addSubMenu(copy).addItem('Move selected to Research','moveSelectedToResearch').addItem('Return selected from Research','returnSelectedFromResearch').addItem('Move selected back to Events','returnSelectedToEvents').addItem('Set selected venue / address','openBulkLocation').addSubMenu(share).addSeparator().addItem('Remove selected to Trash','removeSelectedEntries').addItem('Restore selected Trash entries','restoreSelectedTrash').addSeparator().addItem('Check companion screenshots now','processCompanions').addItem('Refresh event views','refreshEventViews').addItem('Fix date and time display','fixEventDateTimeDisplay').addToUi();
 }
 function vrRows_(tab){
@@ -84,8 +84,12 @@ function openVisualReview(){
   const template=HtmlService.createTemplateFromFile('ReviewDialog');
   const heads=sh.getRange(1,1,1,sh.getLastColumn()).getValues()[0];
   const values=sh.getRange(row,1,1,heads.length).getValues()[0];
-  const queue=vrRows_(sh.getName()).filter(r=>r.group_id).map(r=>({mode:sh.getName()==='Event Review'?'review':sh.getName()==='Places & Activities'?'place':sh.getName()==='Research'?'holding':'edit',sourceId:String(r.source_id||''),groupId:String(r.group_id||'')}));
-  template.context=JSON.stringify({queue,mode:sh.getName()==='Event Review'?'review':sh.getName()==='Places & Activities'?'place':sh.getName()==='Research'?'holding':'edit',
+  const selectedTabRows=vrRows_(sh.getName());
+  const queue=selectedTabRows.filter(r=>r.group_id).map(r=>({mode:sh.getName()==='Event Review'?'review':sh.getName()==='Places & Activities'?'place':sh.getName()==='Research'?'holding':'edit',sourceId:String(r.source_id||''),groupId:String(r.group_id||'')}));
+  const auditRow=isPublicationReviewRow_({issue:values[heads.indexOf('issue')]});
+  const auditMode=auditRow&&(String(values[heads.indexOf('differences')]||'').indexOf('place:')===0)?'place':'edit';
+  queue.forEach(q=>{const r=selectedTabRows.find(x=>String(x.group_id)===q.groupId&&String(x.source_id||'')===q.sourceId);if(isPublicationReviewRow_(r))q.mode=String(r.differences||'').indexOf('place:')===0?'place':'edit';});
+  template.context=JSON.stringify({queue,mode:auditRow?auditMode:sh.getName()==='Event Review'?'review':sh.getName()==='Places & Activities'?'place':sh.getName()==='Research'?'holding':'edit',
     sourceId:String(values[heads.indexOf('source_id')]||''),groupId:String(values[heads.indexOf('group_id')]||'')});
   SpreadsheetApp.getUi().showModalDialog(template.evaluate().setWidth(1160).setHeight(760),'Review event');
 }
@@ -122,6 +126,8 @@ function getVisualReviewDataLocked_(context){
     cropSummary:cropRow_(String(current.original_image_file_id))||null,
     posterGroupCount:source?posterGroupIds_(source.group_id).length:1,
     sharedVenueTargets:sharedVenueTargets_(source,current),
+    posterTargets:reviewPosterTargets_(source,current),
+    publicationHealth:publicationHealth_(current,context.mode==='place'?'place':'event'),
     mode:context.mode,sourceId:source&&String(source.id)||'',
     groupId:editing?String(event.group_id):String(event.group_id||source&&source.group_id||''),placeType:String(current.place_type||'uncategorized'),
     suggestedGroupId:context.mode==='review'?String(event.suggested_group_id||''):'',
@@ -186,6 +192,7 @@ function saveVisualDecision(payload){
     if(payload.approveAsIs&&!dateKey_((payload.fields||{}).start_date)&&payload.mode!=='place'&&['edit','dismiss'].includes(action)){if(!payload.publication||payload.publication.expiry_mode==='event')throw new Error('An undated listing needs an offer expiry or Ongoing; it will go to Places & Activities.');action='place';}
     if(source&&String(source.group_id)!==String(payload.groupId))throw new Error('This source moved to a different group. Reopen it before saving.');
     if(!source||source.status===CONFIG.STATUS.REJECTED||['research','trash','not_local'].includes(source.match_status))throw new Error('This listing was removed or parked. Reopen it from its current tab.');
+    if(action==='not_local'&&Object.prototype.hasOwnProperty.call(payload,'notLocalItems'))return excludeSelectedPosterListingsLocked_(source,payload.notLocalItems);
     if(action==='not_local_poster'){if(String(source.group_id)!==String(payload.groupId))throw new Error('This entry changed. Reopen it.');return excludePosterLocked_(payload.groupId);}
     if(action==='return_event'){const place=vrRows_(PIPE.PLACES).find(r=>String(r.group_id)===String(payload.groupId));if(payload.mode!=='place'||!place)throw new Error('Select a saved place first.');if(payload.reviewVersion&&visualVersion_(place)!==payload.reviewVersion)throw new Error('This entry changed. Reopen it before restoring.');restorePlaceToEvent_(String(payload.groupId));refreshEventViews_();fixEventDateTimeDisplay();return {ok:true,destination:'Events'};}
     if(!['edit','merge','separate','dismiss','duplicate','not_local','place','copy_place'].includes(action))throw new Error('Unknown decision.');

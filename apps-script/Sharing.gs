@@ -1,6 +1,6 @@
 /** Public posters only. Original screenshots remain in Drive; the server publishes the crop. */
 const SHARING={URL:'https://islamabad-out-and-about.softcrumb16.chatgpt.site',ASSETS:'Poster Crops',ASSET_HEADERS:['file_id','crop_json','crop_status','crop_reason','checked_at','public_asset_url','asset_signature'],STATE:'Publications',STATE_HEADERS:['listing_id','group_id','kind','content_hash','poster_url','public_url','published_at','remote_revision'],TRASH:'Trash',TRASH_HEADERS:['group_id','title','removed_at','snapshot_json'],FIELDS:['title','start_date','end_date','start_time','end_time','venue','address','organizer','price','contact','registration_url','description','categories','age_info','source_account']};
-const PUBLIC_QUEUE={TAB:'Publication Queue',HEADERS:['listing_id','title','status','attempt_count','next_retry_at','last_error','checked_at']};
+const PUBLIC_QUEUE={TAB:'Publication Queue',HEADERS:['listing_id','title','status','attempt_count','next_retry_at','last_error','checked_at','first_pending_at','input_hash']};
 function sharingTables_(){table_(VENUES.TAB,VENUES.HEADERS);table_(TEXT_ARCHIVE.TAB,TEXT_ARCHIVE.HEADERS);table_(LISTING_SETTINGS.TAB,LISTING_SETTINGS.HEADERS);table_(HOLDING.TAB,HOLDING.HEADERS);table_(PUBLIC_OUTBOX.TAB,PUBLIC_OUTBOX.HEADERS);table_(PUBLIC_QUEUE.TAB,PUBLIC_QUEUE.HEADERS);table_(SHARING.ASSETS,SHARING.ASSET_HEADERS);table_(SHARING.STATE,SHARING.STATE_HEADERS);table_(SHARING.TRASH,SHARING.TRASH_HEADERS);}
 function sharingConnection_(){const p=PropertiesService.getScriptProperties();return {url:p.getProperty('PUBLIC_PAGE_URL')||SHARING.URL,token:p.getProperty('PUBLIC_PAGE_TOKEN')||''};}
 function connectPublicPage(){if(githubPublishing_()){SpreadsheetApp.getUi().alert('GitHub publishing is enabled. Configure GITHUB_PAGES_URL and the export secrets using the migration instructions.');return;}
@@ -55,7 +55,7 @@ function publicationProblem_(record,kind){
  if(!record.original_image_file_id)return 'No display poster';return '';
 }
 function eligiblePublicRecords_(){
- const reviews=vrRows_(PIPE.REVIEW),blocked=new Set();reviews.forEach(r=>{if(r.group_id)blocked.add(String(r.group_id));if(r.suggested_group_id)blocked.add(String(r.suggested_group_id));});
+ const reviews=vrRows_(PIPE.REVIEW).filter(r=>!isPublicationReviewRow_(r)),blocked=new Set();reviews.forEach(r=>{if(r.group_id)blocked.add(String(r.group_id));if(r.suggested_group_id)blocked.add(String(r.suggested_group_id));});
  const inactive=new Set(vrRows_(PIPE.RAW).filter(r=>['research','trash','not_local'].includes(r.match_status)||r.status===CONFIG.STATUS.REJECTED).map(r=>String(r.group_id)));
  return vrRows_(PIPE.UPCOMING).filter(r=>!inactive.has(String(r.group_id))&&!blocked.has(String(r.group_id))&&!publicationProblem_(r,'event')&&!isPast_(r)).map(r=>({record:r,kind:'event'})).concat(vrRows_(PIPE.PLACES).filter(r=>!inactive.has(String(r.group_id))&&!blocked.has(String(r.group_id))&&!publicationProblem_(r,'place')).map(r=>({record:r,kind:'place'})));
 }
@@ -89,7 +89,7 @@ function publishRecord_(record,kind){
 function publicationQueueRows_(){return readObjects_(table_(PUBLIC_QUEUE.TAB,PUBLIC_QUEUE.HEADERS));}
 function writePublicationQueue_(id,title,status,error,nextRetry){
  const sh=table_(PUBLIC_QUEUE.TAB,PUBLIC_QUEUE.HEADERS),old=publicationQueueRows_().find(r=>String(r.listing_id)===id),failures=status==='retry'?Number(old&&old.attempt_count||0)+1:0;
- sh.getRange(old?old._row:sh.getLastRow()+1,1,1,PUBLIC_QUEUE.HEADERS.length).setValues([[id,nativeEventCell_('title',title),status,failures,nextRetry?new Date(nextRetry).toISOString():'',String(error||'').slice(0,800),new Date().toISOString()]]);
+ sh.getRange(old?old._row:sh.getLastRow()+1,1,1,PUBLIC_QUEUE.HEADERS.length).setValues([[id,nativeEventCell_('title',title),status,failures,nextRetry?new Date(nextRetry).toISOString():'',String(error||'').slice(0,800),new Date().toISOString(),old&&old.first_pending_at||'',old&&old.input_hash||'']]);
 }
 function publicationQueueDue_(attempt,now){return !attempt||!attempt.next_retry_at||new Date(attempt.next_retry_at).getTime()<=now;}
 function publicationHash_(record,kind,asset){return digestKey_(JSON.stringify({item:publicListing_(record,kind),file:record.original_image_file_id,box:asset&&asset.crop_json,gallery:sourcesForGroup_(record.group_id,record.original_image_file_id).map(i=>{const crop=cropRow_(i.fileId);return [i.fileId,crop&&crop.crop_status,crop&&crop.crop_json];})}));}
@@ -111,7 +111,7 @@ function publicationRetryAt_(error,attempt,now){
  return now+Math.min(3600000,5*60000*Math.pow(2,Math.min(4,Number(attempt&&attempt.attempt_count||0))));
 }
 function syncPublicPosters(){
- if(githubPublishing_())return prepareGitHubPosters_();
+ if(githubPublishing_()){const result=prepareGitHubPosters_();try{auditWebsitePublishing_(false);}catch(e){console.warn('Publishing audit deferred: '+e.message);}return result;}
  if(!sharingConnection_().token)return;
  return withJobLease_('public_sync',function(){
   const work=withDataLock_(function(){sharingTables_();if(PropertiesService.getScriptProperties().getProperty('PIPELINE_DIRTY')==='1')refreshEventViews_();const candidates=eligiblePublicRecords_(),keep=new Set(candidates.map(x=>x.kind+':'+x.record.group_id)),inactive=new Set(vrRows_(PIPE.RAW).filter(r=>r.status===CONFIG.STATUS.REJECTED||['place','research','trash'].includes(r.match_status)).map(r=>String(r.group_id)));
@@ -133,6 +133,7 @@ function syncPublicPosters(){
  });
 }
 function showPublicationStatus(){
+ if(githubPublishing_()){const props=PropertiesService.getScriptProperties(),rows=publicationQueueRows_(),count=status=>rows.filter(r=>status.includes(r.status)).length;SpreadsheetApp.getUi().alert('GitHub publishing status','Last website audit: '+(props.getProperty('PUBLICATION_AUDIT_CHECKED_AT')||'Not yet run')+'\nLive: '+count(['live','live_legacy'])+'\nWaiting automatically: '+count(['pending'])+'\nNeeds attention in Event Review: '+count(['needs_crop','blocked','stuck'])+'\n'+(props.getProperty('PUBLICATION_AUDIT_ERROR')||'Use Events → Sharing → Audit website publishing to check now.')+'\nSee Publication Queue for each listing’s reason.',SpreadsheetApp.getUi().ButtonSet.OK);return;}
  sharingTables_();const props=PropertiesService.getScriptProperties();let report={};try{report=JSON.parse(props.getProperty('PUBLIC_SYNC_STATUS')||'{}');}catch(e){}const busy=geminiBusyUntil_();let calls={};try{calls=JSON.parse(props.getProperty('GEMINI_CALL_COUNTS')||'{}');}catch(e){}
  SpreadsheetApp.getUi().alert('Public publishing status','Last checked: '+(report.checked_at||'Not yet run')+'\nWaiting: '+(report.pending===undefined?'unknown':report.pending)+'\nNeed crop checks: '+(report.needs_crop||0)+'\n'+(busy>Date.now()?'Gemini temporarily busy; retries after '+Utilities.formatDate(new Date(busy),'Asia/Karachi','HH:mm')+'.':'Gemini retry timer is clear.')+'\nGemini calls today: '+(calls.total||0)+' ('+(calls.failed||0)+' failed). '+Object.keys(calls.purposes||{}).map(k=>k+': '+calls.purposes[k]).join(', ')+'\nSee Publication Queue for individual errors and retry times.',SpreadsheetApp.getUi().ButtonSet.OK);
 }
