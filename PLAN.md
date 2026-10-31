@@ -1,0 +1,145 @@
+# PLAN.md
+
+Last updated: 2026-10-31. This is the only plan file: priorities, later work, bugs, decisions and open questions all live here. Update it in every commit. Within each section, hard-to-undo and foundational items come first.
+
+Background: the Claude doc "Islamabad Events: Crop, Category and Workflow Plan" (https://claude.ai/artifact/MRqKvJqzCzcGwifQGEkg5m) holds the longer early discussion and the V1 prompt text. It is no longer updated; this file is the source of truth. Once `Prompts.gs` exists, the prompts live there. The "Islamabad Out & About: Requirements" doc has not been seen.
+
+## Current priorities
+Build one small piece at a time. Nothing below is started.
+
+**1. Foundations (hard to undo, or everything else depends on them)**
+- [ ] Safe test copy: copy of the Sheet and Apps Script, a separate test Drive inbox, its own Script Properties, and a separate free Gemini API key. Leave `PUBLICATION_TARGET` unset so it cannot publish. Why: failed Gemini calls set shared pause flags, and pushes to `main` change the live script.
+- [ ] Create `Prompts.gs` with the current prompts moved over unchanged as V1. Store `prompt_version` and Gemini's raw JSON answer with each extraction. Why: lets us compare prompt versions and re-run old data later. No behaviour change.
+- [ ] Add the new fields (see "Tags and value" and "Dates") inside the existing `companion_clues` JSON, so no sheet columns change.
+- [ ] Decide whether judgments are made in the image call or a separate text-only second call. Recommended: second call, so rules can change without re-reading images.
+
+**2. Review speed (my biggest daily pain: loading images, and saving)**
+- [ ] Measure first in the test copy: time the dialog opening, the image load and the save separately. Likely causes, from reading the code (not timed): (a) images are sent as full base64 text through `google.script.run` (`vrImage_`, up to 6 MB each; thumbnails only in preview mode); (b) a save (`saveVisualDecision`) can read whole tabs up to 11 times, rebuilds the canonical list up to 4 times, then rebuilds all derived views (`refreshEventViews_`) and reformats dates.
+- [ ] Quick win 1: load images as Drive thumbnails that the browser fetches directly, and prefetch the next item's images. Needs a test; it may be blocked inside the dialog in some browsers.
+- [ ] Quick win 2: make save return fast. Write only the decision, run the view rebuild shortly afterwards on a trigger, and drop the item from the dialog straight away.
+- [ ] Short daily queue, most important items first. Items I skip still follow the publish tiers, so missing days stalls nothing. Every action saves on its own, so stopping halfway loses nothing.
+- [ ] Only if it is still slow after these: the full-page review web app (listed under Later).
+
+**3. Dates (old posts get the current year)**
+- [ ] Extraction V2 returns `date_basis` (`printed_year`, `weekday_matched`, `assumed_year`, `relative`, `guessed`), `printed_weekday`, and `post_date_text` (publish date or age if visible, such as "12 Oct 2025" or "3w"). Pass the screenshot capture time as a hint used only for relative dates like "this Saturday".
+- [ ] Code check (Normalize or EventsPipeline): when the year is not printed, test the printed weekday against the assumed year. If it does not match, try the previous and next year and use the one that does, otherwise mark `guessed`. Impossible dates (30 Feb, 29 Feb in a non-leap year) are already rejected by `validDateKey_`.
+- [ ] A date with an assumed year and no weekday match or post-age evidence is medium tier: it goes to "Dates to be confirmed" and never shows as Upcoming.
+- [ ] After a week, count how many land in medium and adjust the rule.
+
+**4. Crops and wrong organizers (most visible problem)**
+- [ ] Extraction V2: add `post_region`, a top/bottom `artwork_box`, `venue_text` as written, and evidence quotes for organizer, account and venue. Why: stops handles from neighbouring posts becoming organizers or venues.
+- [ ] Tighten `validCrop_` in `Sharing.gs`; use top and bottom only, at full width.
+- [ ] In `src/crop.ts`: trim phone UI rows, snap top and bottom to blank rows, reject odd shapes (under about 60% of the width, ratio over about 3:1). Test on the posters already in `docs/posters`.
+- [ ] Make one bad image unable to block the whole site build: in `scripts/sync.mjs`, skip that listing, flag it, and continue.
+- [ ] Get a few original screenshots of the bad crops to test against.
+
+**5. Small and mostly additive**
+- [ ] "Group selected as one post" menu item in the Sheet.
+- [ ] Posting rules (see Decisions).
+- [ ] Test whether the "Find venue" lookup (`Research.gs`) works on my free key, in the test copy only. If it is refused, disable its menu item.
+
+## Later
+**Places and the weekly review**
+- [ ] Place aliases and a "same as…" merge (Trail 5, Trail-5 Margalla, T5). The AI suggests; I confirm each one. Never merged automatically. `VenueDirectory.gs` has no aliases today.
+- [ ] Weekly review stage 1, plain code: candidates (same title 3+ times in 90 days, same venue and organizer, repeat course providers).
+- [ ] Weekly review stage 2, one text-only LLM call per batch: judge candidates, write suggestions into Review. Never edits listings directly.
+- [ ] "Add to Places" action linking a venue to its past events.
+- [ ] Propose 10 to 15 clean filter groups from free-form tags, and group parked posts into ideas for Islamabad.
+- [ ] Refresh `last_seen` when the same organizer appears again.
+
+**Review app and tabs**
+- [ ] Full-page review web app: side-by-side old and new, poster-level bulk actions, regroup control. Only if the speed quick wins are not enough.
+- [ ] Merge Research into Parked (private). Trash is for non-local posts with nothing worth keeping.
+- [ ] Retire unused tabs after checking nothing depends on them: Companion Checks, Event Records, Publication Outbox, Publications.
+- [ ] Grouping strip for new uploads, only if manual grouping shows it is needed. When grouping before extraction exists: merge neighbours by capture time, account and caption after a 2 to 3 minute settle wait, and let extraction flag "more than one post in this group" so the code splits it.
+
+**iPhone support**
+- [ ] Timestamp source in order: filename, then Drive metadata, then upload time. iPhone names look like `IMG_1234`, so bulk uploads would otherwise look like one burst.
+- [ ] Publishing accepts only JPEG/PNG up to 6 MB, while extraction accepts HEIC, HEIF and WebP up to 15 MB. Close that gap before iPhone use.
+
+**Public site**
+- [ ] A weekend board: events first, then things to do. "Dates to be confirmed" strip, collapsed, below Upcoming.
+- [ ] Past events: last 30 days visible, older ones rolled into series, search covers everything, pin option, "Older / Inspiration" toggle.
+- [ ] "Report a problem" link, including "Know the date or time? Tell us". Suggestions land in Review and never change data. Optional "Publish now" button.
+- [ ] Attribution and a "contact me to remove this" line.
+- [ ] Update README (see Bugs).
+
+**Flexibility extras (only after the basics work)**
+- [ ] Settings tab for wording, thresholds and lists.
+- [ ] Golden examples tab (10 to 20 screenshots with the right answer) used as prompt examples and a test set.
+- [ ] Log of my overrides of AI answers.
+- [ ] Research drop zone for links, notes, locations, voice notes and WhatsApp exports (goes into Parked).
+- [ ] Price filters, calendar downloads, embedding-based search.
+
+## Might consider in the future
+- Maps lookup for venues (Google Places search or Gemini Maps grounding). Both need billing enabled; Gemini's pricing page lists Maps grounding as paid-tier only. Revisit if the budget changes. A free OpenStreetMap lookup might handle area-level matches; coverage of Islamabad venues not checked.
+- Paid Gemini tier: turns off free-tier data use and enables Google Search grounding. Costs money.
+- A 1 to 2 hour grace period before confident items publish. Start without it and see how often confident items are wrong.
+
+## Tags and value (confirmed 2026-10-31; wording still to be drafted into `Prompts.gs`)
+The board answers "what can I do in Islamabad this weekend", with events at its core. Value is the same for visitors and residents, so there is no visitor or resident split. For every post Gemini returns:
+1. **kind**: `event` (dated, the core and most common), `place` (venues such as pools, riding clubs, escape rooms, and places where activities like hiking or cycling happen), `course`, `offer`, `trip` (day trips and longer trips starting from Islamabad), `product` (things to buy, such as games; placeless), `not_useful`. Activities are tags on places, not a kind.
+2. **lifecycle**: `dated`, `ongoing`, `seasonal`, `time_limited`. A place needs `ongoing` or `seasonal`, so a cafe that hosted one workshop stays a venue.
+3. **why_useful**: one sentence on what someone could do because of this post. Empty only when `not_useful`.
+4. **local_relevance**: `islamabad_rwp`, `trip_from_here`, `not_local`.
+5. **tags**: free-form topics (hiking, pottery, kids), used for search and filters.
+
+Also returned: `implied_facts`, `recurrence` (only if printed), `location_type` (`fixed`, `area_only`, `tba`, `multiple`, `online`, `trip`, `none`), and the date fields above. Offers and courses are shown while live, with an expiry and a "limited time" or "enrolling now" tag, then become facts on the place ("runs swimming discounts, last seen Oct 2026").
+
+Draft of the value paragraph for the prompt:
+> Our readers are people doing things in Islamabad, visitors and residents alike, planning what to do this weekend. For every post, answer: what could someone do because of this post? Events are the core. Also valuable: recurring classes and courses; discounts and offers (a reduced swimming fee shows there is a pool someone can use); venues such as pools, riding clubs and escape rooms; activities such as hiking or cycling and where they can be done; day trips and longer trips starting from Islamabad; games you can buy. Write why_useful in one sentence. If nothing here could help someone do something in or from Islamabad, leave why_useful empty and set kind to not_useful (unrelated product sales, brand promos, online-only content, recruitment, giveaways, news with nothing to attend). Also list implied_facts: anything the post reveals about a place or provider that stays true after the post expires (has a pool, offers pottery classes, runs discounts), each with a quote.
+
+## Bugs
+- [ ] Poster crops cut through text on the left and right (Wood Furniture Making, IRU weekly calendar).
+- [ ] Crops include app UI: like and share counts, profile bar, comment field, phone navigation bar, mute button.
+- [ ] Some crops include the caption below the artwork (Forest Magic).
+- [ ] Crop prompt asks for `[left, top, right, bottom]` while Gemini's native order is `[y_min, x_min, y_max, x_max]`. Suspected cause of narrow crops. Not confirmed.
+- [ ] Old posts with no printed year get the current year and can show as Upcoming. The prompt tells Gemini to assume the current year; the only code check is that the date exists on the calendar.
+- [ ] Review is slow loading images and saving (causes under Current priorities, not yet timed).
+- [ ] One failing source image can fail the whole site build and keep the old site. From reading the code: the export refuses non-JPEG/PNG or over 6 MB, the crop decoder caps at about 5 megapixels, and nothing skips a failing item. Not yet seen. May explain listings with no image.
+- [ ] The "Find venue" lookup uses Google Search grounding, which Google lists as not available on the free tier for most models, including the default `gemini-3.5-flash-lite`. It probably fails on my key. Not tested. If a refusal comes back as HTTP 429, it would set the shared Gemini pause (15 minutes or more) and stall extraction, so test it only in the test copy.
+- [ ] Everything in the inbox is sent to Gemini, and on the free tier Google may use it to improve its products (see Decisions).
+- [ ] Some listings get no image when Gemini returns `use_image=false`. Not reproduced.
+- [ ] Handles from a neighbouring post become the organizer. Not reproduced.
+- [ ] `groupNeighbourScreenshots_` is never called, so grouping before extraction does not happen.
+- [ ] README is out of date: it says no website exists, and that GitHub does not deploy Apps Script, but `sync-apps-script.yml` does.
+
+**Checked and not a problem (so they are not raised again)**
+- All 7 place types can be returned; the schema and the cleanup code both allow them.
+- Failed files keep one error row each. Gemini-busy errors leave the file queued with no error row.
+- Time parsing accepts only strict 24-hour `HH:MM` and blanks anything else, so `7:05 pm` does not become `07:05`.
+- Titles are escaped by `scriptJson_` before going into dialogs. Not every dialog was checked.
+
+## Decisions
+- **2026-10-31: Value is the same for visitors and residents.** Drop the visitor/resident `audience` field and `visitor_travel`. One `why_useful` sentence instead. Why: I realised the value is the same for both groups. Events stay a separate kind because they are the most common.
+- **2026-10-31: The site is a "what can I do this weekend" board.** Kinds are event, place, course, offer, trip, product, not_useful. Placeless things such as games are allowed. Why: it matches what I actually save. Easy to change later as long as the raw extraction and `location_type` are stored; hiding them is a one-line site filter.
+- **2026-10-31: Place aliases are suggested by the AI and confirmed by me.** Never merged automatically.
+- **2026-10-31: Skip the Maps lookup for now.** It is listed under "Might consider in the future". Why: it needs billing, and the budget is zero.
+- **2026-10-31: My Gemini key is free-tier.** Consequences: Google Search grounding is probably unavailable, and Google's pricing page says free-tier content is used to improve its products. Since any supported image goes to Gemini, anything dropped in the inbox may be seen by Google. Keep private screenshots out of the inbox folder, or accept this. Paid tier would turn it off.
+- **2026-10-31: Unconfirmed items.** They sit in Review (private). After 12 hours, medium-tier items also show in the public "Dates to be confirmed" strip, which expires an item 14 days after extraction if no date turns up. Low-tier items (no title, bad crop, suspected non-local, no value) stay in Review only, hidden; if their date passes they are archived quietly, never deleted.
+- **2026-10-31: Check dates against the year.** Use the printed weekday and any visible post date to catch old posts. Details under Current priorities.
+- **2026-10-31: Review speed first, and try the cheap fixes before a new web app.** Why: it is the daily pain, and the likely causes (base64 images, rebuilding every view on each save) can be fixed inside the existing dialog.
+- **2026-10-31: Only two coordinating files, `CLAUDE.md` and `PLAN.md`, both updated in every commit.** Why: less to keep in sync.
+- **2026-10-31: One codebase.** Fold the good ideas from the separate "v2" into this code; do not build v2. Why: this code is live with 117 listings, tests and a working GitHub publish. v2 was untested in Apps Script, and its output format would mean rebuilding the site feed. v2 files were never in this repo.
+- **2026-10-31: Any supported image in the inbox goes to Gemini.** No Instagram filename filter. Why: my choice, simpler, and iPhone later.
+- **2026-10-31: Retries stay as they are.** Gemini-busy files stay queued and retry with backoff; other failures keep one error row per file and retry daily at most.
+- **2026-10-31: Posting rule.** Publish when there is a title and a clean crop. A missing date, venue or price does not block. An unclear date shows with no date under "Dates to be confirmed", never a guessed one. No title or an unclear crop goes to Hold. Why: a missing listing beats a wrong one.
+- **2026-10-31: Ideas adopted from the other chats (originally 15 to 16 Oct).** Upcoming and "Things to do" split with an archived toggle; `lifecycle` field; free-form tags with a later job to group them; store the summary and full visible text for every screenshot; `date_basis`; unconfirmed items expire; Research drop zone and attribution line later.
+- **2026-10-30: Repo reviewed.** The GitHub crop is a plain rectangle cut with no checks beyond a 100 px minimum, so fixes belong in Apps Script and in `src/crop.ts`.
+- **2026-10-28: Venue is not a Place.** A cafe that hosted one workshop stays a venue. Why: otherwise Places fills with cafes.
+- **2026-10-28: Merge Research and Scouting into one private Parked tab.** Ideas are found later by the weekly review, not at upload.
+- **2026-10-28: Grouping is a layer over extractions.** Regrouping re-extracts only that group; manual groupings are saved as decisions.
+- **2026-10-28: Old events stay in the data but not on screen.** About 30 days visible, older ones rolled up. These numbers are defaults.
+- **2026-10-28: Tiered publish policy.** Confident items publish, medium ones go to "Dates to be confirmed" after 12 hours, low ones stay hidden. Why: nothing should wait for me.
+- **2026-10-28: Weekly review is plain code first, then one text-only LLM call.** It only writes suggestions.
+- **2026-10-28: Prompts live in their own file with versions.** Build piece by piece, not all at once.
+- **2026-10-27: Separate boxes for extraction and poster.** Extraction needs the description; the poster only needs the artwork. The poster box is top and bottom only, full width, because Instagram posts span the full width.
+- **2026-10-27: Drop `announcement` as a kind. Keep `trip_from_here`. Keep implied facts with the original post.**
+- **2026-10-27: Public site shows confirmed events only.** Public reports suggest and never apply. Why: a wrong date is worse than a missing event.
+- **2026-10-26: Keep the current stack** (Drive, Apps Script, Gemini, Sheet, hourly GitHub Pages). Why: it works and Gemini is reliable here.
+
+## Open questions
+- Re-extract old records with the new prompt, or only new uploads? Suggested: new uploads plus a few old ones, to save free-tier calls.
+- An example screenshot filename (app name first, then timestamp) to check grouping.
+- Is the kind list right (event, place, course, offer, trip, product, not_useful)?
+- Assumed until told otherwise: keep the Sheet tabs for now instead of one sheet with a Status column; site sections are Upcoming, Things to do and an Older toggle.
