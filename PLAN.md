@@ -8,7 +8,7 @@ Background: the Claude doc "Islamabad Events: Crop, Category and Workflow Plan" 
 Build one small piece at a time. Nothing below is started.
 
 **1. Foundations (hard to undo, or everything else depends on them)**
-- [ ] Safe test copy: copy of the Sheet and Apps Script, a separate test Drive inbox, its own Script Properties, and a separate free Gemini API key. Leave `PUBLICATION_TARGET` unset so it cannot publish. Why: failed Gemini calls set shared pause flags, and pushes to `main` change the live script.
+- [ ] (On hold 2026-11-01: not possible right now.) Safe test copy: copy of the Sheet and Apps Script, a separate test Drive inbox, its own Script Properties, and a separate free Gemini API key. Leave `PUBLICATION_TARGET` unset so it cannot publish. Why: failed Gemini calls set shared pause flags, and pushes to `main` change the live script.
 - [ ] Create `Prompts.gs` with the current prompts moved over unchanged as V1. Store `prompt_version` and Gemini's raw JSON answer with each extraction. Why: lets us compare prompt versions and re-run old data later. No behaviour change.
 - [ ] Add the new fields (see "Tags and value" and "Dates") inside the existing `companion_clues` JSON, so no sheet columns change.
 - [ ] Build judgments (kind, why_useful, tags, local_relevance) as a separate text-only second step. The image call only extracts facts and boxes. Why: when I change categories, I re-run the saved text, not the images. New uploads by default; old posts can be re-run to test a prompt.
@@ -19,7 +19,7 @@ Build one small piece at a time. Nothing below is started.
 - [ ] Quick win 1: load images as Drive thumbnails that the browser fetches directly, and prefetch the next item's images. Needs a test; it may be blocked inside the dialog in some browsers.
 - [ ] Quick win 2: make save return fast. Write only the decision, run the view rebuild shortly afterwards on a trigger, and drop the item from the dialog straight away.
 - [ ] Short daily queue, most important items first. Items I skip still follow the publish tiers, so missing days stalls nothing. Every action saves on its own, so stopping halfway loses nothing.
-- [ ] Only if it is still slow after these: the full-page review web app (listed under Later).
+- [ ] Review outside the Sheet (my wish, 2026-11-01): a review page on my computer that shows screenshots straight from the Drive inbox (synced by Google Drive for desktop, so images load from disk) and sends each decision to a small Apps Script endpoint that writes one row and returns. The heavy view rebuild runs later on a trigger. Open question: do I only review on this computer, or also on my phone? Phone means a hosted page instead of a local one.
 
 **3. Dates (old posts get the current year)**
 - [ ] Extraction V2 returns `date_basis` (`printed_year`, `weekday_matched`, `assumed_year`, `relative`, `guessed`), `printed_weekday`, and `post_date_text` (publish date or age if visible, such as "12 Oct 2025" or "3w"). Pass the screenshot capture time as a hint used only for relative dates like "this Saturday".
@@ -50,7 +50,7 @@ Build one small piece at a time. Nothing below is started.
 - [ ] Refresh `last_seen` when the same organizer appears again.
 
 **Review app and tabs**
-- [ ] Full-page review web app: side-by-side old and new, poster-level bulk actions, regroup control. Only if the speed quick wins are not enough.
+- [ ] Extras for the review page (after the basic page under Review speed works): side-by-side old and new, poster-level bulk actions, regroup control.
 - [ ] Merge Research into Parked (private). Trash is for non-local posts with nothing worth keeping.
 - [ ] Retire unused tabs after checking nothing depends on them: Companion Checks, Event Records, Publication Outbox, Publications.
 - [ ] Grouping strip for new uploads, only if manual grouping shows it is needed. When grouping before extraction exists: merge neighbours by capture time, account and caption after a 2 to 3 minute settle wait, and let extraction flag "more than one post in this group" so the code splits it.
@@ -104,13 +104,16 @@ Draft of the value paragraph for the prompt:
 > Our readers are people doing things in Islamabad, visitors and residents alike, planning what to do this weekend. Events are the backbone. For every post, answer: what could someone do because of this post? Dated things you can attend are events, including dated courses, workshops and trips. Fixed things you can do on any day (trails, waterfalls, escape rooms, bowling, riding clubs, pools) are things to do. Things to buy and use yourself (games, craft kits) are products. An offer or discount is an advertisement that expires: record its end date, and also record what it reveals about the business (a reduced swimming fee shows there is a pool someone can use). Write why_useful in one sentence. If nothing here could help someone do or buy something in or from Islamabad, leave why_useful empty and set kind to not_useful (unrelated product sales, brand promos, online-only content, recruitment, giveaways, news with nothing to attend). List implied_facts: anything the post reveals about a place or provider that stays true after the post expires (has a pool, offers pottery classes, runs discounts), each with a quote.
 
 ## Bugs
+- [ ] **The site has not updated since 31 Oct 2026, 12:08 (Pakistan time).** Every build since then fails with `Crop too small` (thrown in `src/crop.ts` line 14 when a crop is under 100 x 100 px). One bad crop stops the whole build, so the old site stays up. Fix is the "skip that listing, flag it, and continue" item under Crops (priority 4). Seen in GitHub Actions logs, 2026-11-01.
+- [ ] Builds also fail with `The sheet is saving another change` when Apps Script is busy at the same moment (inbox run every 5 minutes, or a review save). The export waits only 5 seconds for the lock (`tryLock(5000)` in `Workflow.gs`), then the whole build gives up. Happened in about 5 of the last 30 builds (27, 28, 29 Oct, 1 Nov). Likely fix: wait longer and retry a few times before failing.
+- [ ] "Hourly" builds are not hourly. GitHub delays or drops scheduled runs when it is busy; from 23 Oct to 1 Nov builds started every 2 to 7 hours, not every hour. Each build takes 7 to 11 minutes. Combined with the failures above, a new listing can take most of a day to appear. Options to look at later: a "Publish now" trigger from the Sheet, or a lighter build.
 - [ ] Poster crops cut through text on the left and right (Wood Furniture Making, IRU weekly calendar).
 - [ ] Crops include app UI: like and share counts, profile bar, comment field, phone navigation bar, mute button.
 - [ ] Some crops include the caption below the artwork (Forest Magic).
 - [ ] Crop prompt asks for `[left, top, right, bottom]` while Gemini's native order is `[y_min, x_min, y_max, x_max]`. Suspected cause of narrow crops. Not confirmed.
 - [ ] Old posts with no printed year get the current year and can show as Upcoming. The prompt tells Gemini to assume the current year; the only code check is that the date exists on the calendar.
 - [ ] Review is slow loading images and saving (causes under Current priorities, not yet timed).
-- [ ] One failing source image can fail the whole site build and keep the old site. From reading the code: the export refuses non-JPEG/PNG or over 6 MB, the crop decoder caps at about 5 megapixels, and nothing skips a failing item. Not yet seen. May explain listings with no image.
+- [ ] One failing source image can fail the whole site build and keep the old site. Now seen (see `Crop too small` above). Other ways it can happen, from reading the code: the export refuses non-JPEG/PNG or over 6 MB, and the crop decoder caps at about 5 megapixels. May explain listings with no image.
 - [ ] The "Find venue" lookup uses Google Search grounding, which Google lists as not available on the free tier for most models, including the default `gemini-3.5-flash-lite`. It probably fails on my key. Not tested. If a refusal comes back as HTTP 429, it would set the shared Gemini pause (15 minutes or more) and stall extraction, so test it only in the test copy.
 - [ ] Everything in the inbox is sent to Gemini, and on the free tier Google may use it to improve its products (see Decisions).
 - [x] Saved text may be incomplete: fixed 2026-11-01 (see Foundations). Old rows are still short.
@@ -126,6 +129,7 @@ Draft of the value paragraph for the prompt:
 - Titles are escaped by `scriptJson_` before going into dialogs. Not every dialog was checked.
 
 ## Decisions
+- **2026-11-01: Review moves out of the Sheet.** Replaces "full-page web app only if the quick wins are not enough". The Sheet stays the data store; only the review screen moves.
 - **2026-11-01: Claude pushes directly to `main`.** I approved it. Consequence: a push that touches `apps-script/` uploads to the live Apps Script project, and any push rebuilds the site, so Claude batches changes into one push and tells me what went live. Replaces the branch idea.
 - **2026-11-01: Ordinary restaurants and cafes sent without an event count as things to do** (`place_type` restaurant). A cafe that only hosted an event stays a venue only.
 - **2026-11-01: Saved text is the full extraction.** One `page_text` per screenshot, capped at 20,000 characters, kept in the Text Archive. Why: later re-judging depends on the complete text.

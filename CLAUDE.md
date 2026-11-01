@@ -18,7 +18,7 @@ Use the project map below to find relevant files instead of reading the whole re
 ## What this project is
 An Islamabad events and things-to-do guide, built from my Instagram screenshots, for hotel guests visiting Islamabad and for people who live here.
 
-Flow: phone screenshot -> Google Drive inbox -> Apps Script + Gemini -> Google Sheet -> hourly GitHub build -> public site at https://abnaeem0.github.io/islamabad-events-posters/
+Flow: phone screenshot -> Google Drive inbox -> Apps Script + Gemini -> Google Sheet -> GitHub build (scheduled hourly, but GitHub often runs it only every few hours) -> public site at https://abnaeem0.github.io/islamabad-events-posters/
 
 - The repo is **public**. Never commit API keys or tokens. They live in Apps Script Script Properties and GitHub repository secrets.
 - Free tier only: Gemini has daily and per-minute limits, and Apps Script stops a run after 6 minutes. No paid models or services.
@@ -31,7 +31,7 @@ Flow: phone screenshot -> Google Drive inbox -> Apps Script + Gemini -> Google S
 **Entry points**
 - Apps Script: `setupProject()` in `apps-script/Main.gs` (one-time setup) and `processInbox()` (runs every 5 minutes on a trigger).
 - Spreadsheet menu: `onOpen()` in `apps-script/ReviewUI.gs`.
-- Website build: `scripts/sync.mjs`, run hourly at :17 by `.github/workflows/pages.yml`.
+- Website build: `scripts/sync.mjs`, scheduled hourly at :17 (in practice every 2 to 7 hours) by `.github/workflows/pages.yml`.
 
 **Config**
 - `apps-script/Config.gs`: sheet headers, statuses, default Gemini model, supported image types, size limits. Secrets come from Script Properties.
