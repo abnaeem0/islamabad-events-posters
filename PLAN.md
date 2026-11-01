@@ -67,6 +67,9 @@ Build one small piece at a time. Nothing below is started.
 - [ ] Past events: last 30 days visible, older ones rolled into series, search covers everything, pin option, "Older / Inspiration" toggle.
 - [ ] "Report a problem" link, including "Know the date or time? Tell us". Suggestions land in Review and never change data. Optional "Publish now" button.
 - [ ] Attribution and a "contact me to remove this" line.
+- [ ] Google Search Console (wanted 2026-11-01). First step, no code: verify the site (DNS TXT record on the domain, or a meta tag Claude adds), submit `sitemap.xml`, then see what Google indexes. The site already has a title, description, canonical link, robots.txt and a one-URL sitemap.
+- [ ] Analytics (wanted 2026-11-01): Google Analytics 4, loaded async so it does not slow the page. Pairs with Search Console in the same Google account. Track listing clicks (registration link, contact) as events.
+- [ ] Later, only if Search Console shows few search visits: one page per listing with schema.org `Event` data, listed in the sitemap. Today everything is one page, so Google can show at most one result, and event rich results need a page per event.
 - [ ] Update README (see Bugs).
 
 **Flexibility extras (only after the basics work)**
