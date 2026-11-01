@@ -38,6 +38,7 @@ Build one small piece at a time. Nothing below is started.
 - [ ] "Group selected as one post" menu item in the Sheet.
 - [ ] Posting rules (see Decisions).
 - [ ] Test whether the "Find venue" lookup (`Research.gs`) works on my free key, in the test copy only. If it is refused, disable its menu item.
+- [x] Back-to-top button and open listings on the poster (2026-11-01, my request). A round ↑ button appears bottom-right after scrolling about two screens and jumps to the top. Clicking a poster (or opening a shared `?item=` link) now scrolls to the listing's poster instead of the top of the page, so the header no longer has to be scrolled past. "Back to the noticeboard" still returns to the top. Changes in `src/Noticeboard.tsx` and `docs/styles.css`.
 - [ ] Area filter on the site: choose several sectors at once (F-6, E-7, F-8) instead of one. Today `area` is a single value in `src/Noticeboard.tsx` and in the URL (`?area=`), so this means a multi-select and a list in the URL. Check `src/render.tsx` and `scripts/site.test.mjs` too.
 
 ## Later

@@ -20,3 +20,4 @@
 .detail-poster{height:auto;object-fit:contain}
 .no-poster{padding:24px;color:#fff;text-align:center;font-size:22px}
 @media(max-width:520px){.poster-wrap{height:300px;aspect-ratio:auto}}
+.to-top{position:fixed;right:20px;bottom:20px;z-index:9;width:46px;height:46px;padding:0;border-radius:50%;background:var(--ink);color:white;border:0;font-size:20px;line-height:46px;box-shadow:0 4px 18px #0003}.to-top:hover{background:#1a2d26}.detail{scroll-margin-top:10px}
