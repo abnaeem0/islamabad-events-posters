@@ -9,6 +9,7 @@ const CONFIG = Object.freeze({
 
   MAX_FILES_PER_RUN: 10,
   MAX_IMAGE_BYTES: 15 * 1024 * 1024,
+  MAX_SAVED_TEXT_CHARS: 20000, // Sheets allows 50,000 characters per cell
 
   TRIGGER_EVERY_MINUTES: 5,
 

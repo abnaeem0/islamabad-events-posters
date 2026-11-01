@@ -13,7 +13,7 @@ function extractEventFromPoster_(blob, filename, companionBlobs) {
     'Read this screenshot carefully. It may advertise an event, an evergreen place/activity, or only one slide of a carousel. Return a separate item for each genuinely separate listing. Multiple days of one event can remain one item. Extract only information supported by the image.',
     'For an address-only/contact-only slide, return a partial item with null missing fields; do not invent its event name or date. Preserve visible matching clues.',
     'Set listing_kind to event, place, course, recurring, ad, partial or unknown. A gym/riding club/attraction/day-trip destination without a specific dated session is a place; a dated session at that business is an event. Never fabricate dates for places.',
-    'Record visible_text (literal relevant text, maximum 3000 characters), visible Instagram handles, any event-specific booking link/reference, and visible carousel_index/carousel_total. Use null for absent carousel numbers. Do not confuse capture/upload dates with event dates.',
+    'Record visible_text (a short literal excerpt of the text for this item, maximum 3000 characters). Also return page_text once at the top level: ALL readable text of the main post, in reading order, including the full caption, without summarising or leaving anything out (ignore app buttons and menus), visible Instagram handles, any event-specific booking link/reference, and visible carousel_index/carousel_total. Use null for absent carousel numbers. Do not confuse capture/upload dates with event dates.',
     'When several screenshots are supplied, read them as one confirmed post. Return EVERY distinct workshop/event, even when the images share design or venue. An overview slide and detail slide for the same session are one item. Apply a clearly shared venue/address/contact to all relevant workshops unless separate locations are shown. Preserve distinct dates, times, prices and titles. Missing fields stay null.',
     'promotion_end_date is the explicit expiry/deadline of an offer, YYYY-MM-DD, or null. Never invent a 90-day validity or treat the screenshot date as an offer deadline. Courses and recurring activities without a specific dated session are not missing-date events.',
     'Set intake_route to listing for ANY recognizable third-party public event poster, ad, course, recurring activity or place promotion, even if date, venue or many other details are missing. Do not park recognizable promotional material in research. Use research for personal/unrelated screenshots, notes, or fragments with too little evidence to identify a public listing; use listing_kind partial or unknown in that case. Include a short intake_reason. Preserve text even when it is not an event.',
@@ -73,13 +73,16 @@ function extractEventFromPoster_(blob, filename, companionBlobs) {
   const result=parseGeminiJson_(response.text);
 
   if (!result || !Array.isArray(result.events)) throw new Error('Gemini did not return events array');
-  return result.events.map(normalizeExtraction_).filter(function(e){return e.companion_clues.intake_route==='research' || e.title || e.start_date || e.venue || e.address || e.contact || e.source_account || e.companion_clues.visible_text;});
+  const kept=result.events.map(normalizeExtraction_).filter(function(e){return e.companion_clues.intake_route==='research' || e.title || e.start_date || e.venue || e.address || e.contact || e.source_account || e.companion_clues.visible_text;});
+  // The full text of the screenshot is kept once, outside the per-event clues, so the Events tab stays small.
+  if(kept.length)kept[0].page_text=truncate_(cleanNullable_(result.page_text)||'',CONFIG.MAX_SAVED_TEXT_CHARS);
+  return kept;
 }
 
 function getGeminiResponseSchema_() {
   return {
     type:'OBJECT',
-    properties:{events:{type:'ARRAY',items:getSingleEventSchema_()}},
+    properties:{events:{type:'ARRAY',items:getSingleEventSchema_()},page_text:{type:'STRING',nullable:true}},
     required:['events']
   };
 }

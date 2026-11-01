@@ -130,7 +130,7 @@ function putRawEvents_(file, items) {
   });
   sh.getRange(sh.getLastRow()+1,1,rows.length,rows[0].length).setValues(rows);
   const added=readObjects_(sh).filter(r=>r.original_image_file_id===file.getId()&&r.status!==CONFIG.STATUS.ERROR);
-  archiveExtractions_(added);routeNewResearch_(added);
+  archiveExtractions_(added,items[0]&&items[0].page_text);routeNewResearch_(added);
   markProcessed_(file.getId());
   refreshIfNeeded_();
 }

@@ -12,7 +12,7 @@ Build one small piece at a time. Nothing below is started.
 - [ ] Create `Prompts.gs` with the current prompts moved over unchanged as V1. Store `prompt_version` and Gemini's raw JSON answer with each extraction. Why: lets us compare prompt versions and re-run old data later. No behaviour change.
 - [ ] Add the new fields (see "Tags and value" and "Dates") inside the existing `companion_clues` JSON, so no sheet columns change.
 - [ ] Build judgments (kind, why_useful, tags, local_relevance) as a separate text-only second step. The image call only extracts facts and boxes. Why: when I change categories, I re-run the saved text, not the images. New uploads by default; old posts can be re-run to test a prompt.
-- [ ] Check the saved text is complete. `visible_text` is capped at 3000 characters and the prompt asks only for "relevant text", so a long caption can be cut, and re-judging old posts depends on it. Raise or remove the cap and ask for all text of the primary post.
+- [x] Check the saved text is complete (2026-11-01). Gemini now returns `page_text` once per screenshot (all readable text of the main post); it is stored in the Text Archive `visible_text` column, capped at 20,000 characters (Sheets cell limit is 50,000). The per-event `visible_text` stays a short excerpt so the Events tab stays small. Applies to new uploads only; old archive rows keep the short text. No sheet headers changed.
 
 **2. Review speed (my biggest daily pain: loading images, and saving)**
 - [ ] Measure first in the test copy: time the dialog opening, the image load and the save separately. Likely causes, from reading the code (not timed): (a) images are sent as full base64 text through `google.script.run` (`vrImage_`, up to 6 MB each; thumbnails only in preview mode); (b) a save (`saveVisualDecision`) can read whole tabs up to 11 times, rebuilds the canonical list up to 4 times, then rebuilds all derived views (`refreshEventViews_`) and reformats dates.
@@ -113,7 +113,7 @@ Draft of the value paragraph for the prompt:
 - [ ] One failing source image can fail the whole site build and keep the old site. From reading the code: the export refuses non-JPEG/PNG or over 6 MB, the crop decoder caps at about 5 megapixels, and nothing skips a failing item. Not yet seen. May explain listings with no image.
 - [ ] The "Find venue" lookup uses Google Search grounding, which Google lists as not available on the free tier for most models, including the default `gemini-3.5-flash-lite`. It probably fails on my key. Not tested. If a refusal comes back as HTTP 429, it would set the shared Gemini pause (15 minutes or more) and stall extraction, so test it only in the test copy.
 - [ ] Everything in the inbox is sent to Gemini, and on the free tier Google may use it to improve its products (see Decisions).
-- [ ] Saved text may be incomplete: `visible_text` is capped at 3000 characters and asks only for "relevant text" (`Gemini.gs`). Long captions can be cut, and re-judging old posts depends on it.
+- [x] Saved text may be incomplete: fixed 2026-11-01 (see Foundations). Old rows are still short.
 - [ ] Some listings get no image when Gemini returns `use_image=false`. Not reproduced.
 - [ ] Handles from a neighbouring post become the organizer. Not reproduced.
 - [ ] `groupNeighbourScreenshots_` is never called, so grouping before extraction does not happen.
@@ -126,6 +126,9 @@ Draft of the value paragraph for the prompt:
 - Titles are escaped by `scriptJson_` before going into dialogs. Not every dialog was checked.
 
 ## Decisions
+- **2026-11-01: Claude pushes directly to `main`.** I approved it. Consequence: a push that touches `apps-script/` uploads to the live Apps Script project, and any push rebuilds the site, so Claude batches changes into one push and tells me what went live. Replaces the branch idea.
+- **2026-11-01: Ordinary restaurants and cafes sent without an event count as things to do** (`place_type` restaurant). A cafe that only hosted an event stays a venue only.
+- **2026-11-01: Saved text is the full extraction.** One `page_text` per screenshot, capped at 20,000 characters, kept in the Text Archive. Why: later re-judging depends on the complete text.
 - **2026-11-01: Four kinds: event, thing_to_do, product, not_useful. `lifecycle` is dropped.** Why: sorting by when and where someone uses a thing matches how I use the site, and the Sheet already separates Events from Places. Dated courses and day trips are events. An offer is an expiring note attached to a place, not a kind. `kind` plus `valid_until`, `recurrence` and tags now carry what `lifecycle` did. Replaces the seven-kind list of 2026-10-31.
 - **2026-11-01: Activities stay tags, and one place can also be a venue (Trail 5).** Judgment call. Why: "hiking" is something you do at places, not a thing you open, so a kind for it would list Trail 5 twice. Tags let "hiking" find the trail and the Sunday hike. Changeable later because the raw extraction is stored.
 - **2026-11-01: Judgments run as a separate step on the saved text.** New uploads by default; changing categories means re-running the saved text, and old posts can be re-run to test a prompt. Why: no image re-reads, so it is cheap and fast.
@@ -161,5 +164,4 @@ Draft of the value paragraph for the prompt:
 - **2026-10-26: Keep the current stack** (Drive, Apps Script, Gemini, Sheet, hourly GitHub Pages). Why: it works and Gemini is reliable here.
 
 ## Open questions
-- How should code changes reach GitHub? Recommended: Claude works on a branch and I merge after trying it in the test copy. Why: a push to `main` that touches `apps-script/` uploads to the live script automatically. A branch needs write access for Claude.
-- Should ordinary restaurants and cafes with an offer count as things to do? Suggested: no, unless the post makes them a destination (a themed cafe, a famous buffet). Otherwise Things to do fills with restaurants.
+- None right now.
