@@ -8,3 +8,17 @@ test('crop, sanitize, fail safely on concurrent edit, and remove listings',async
  const textOnly={version:'text-only',items:[{item:m.items[0].item,images:[]}]};await buildExport(textOnly,()=>{throw new Error('No image download expected')},async()=>textOnly,out);assert.equal(JSON.parse(await readFile(out+'/data/listings.json')).items[0].poster,'');
  await buildExport({version:'empty',items:[]},download,async()=>({version:'empty'}),out);assert.equal(JSON.parse(await readFile(out+'/data/listings.json')).items.length,0);
  }finally{await rm(root,{recursive:true,force:true});}});
+test('a listing with a bad image is skipped, the rest still publish',async()=>{const root=await mkdtemp(join(tmpdir(),'events-skip-')),out=root+'/docs';try{await mkdir(out+'/assets',{recursive:true});await writeFile(out+'/assets/app.js','');await writeFile(out+'/styles.css','');
+ const data=jpeg.encode({width:200,height:400,data:new Uint8Array(200*400*4).fill(255)},88).data;
+ const download=async()=>({mime:'image/jpeg',data:Buffer.from(data).toString('base64')});
+ const good=n=>({item:{id:'event:G_'+n,kind:'event',title:'Good '+n},images:[{fileId:'f'+n,crop:[0,0,1000,500]}]});
+ const tiny={item:{id:'event:BAD',kind:'event',title:'Tiny crop'},images:[{fileId:'bad',crop:[0,0,100,100]}]};
+ const m={version:'v1',items:[good(1),tiny,good(2)]};
+ const snap=await buildExport(m,download,async()=>m,out);
+ assert.deepEqual(JSON.parse(await readFile(out+'/data/listings.json','utf8')).items.map(x=>x.id),['event:G_1','event:G_2']);
+ assert.equal(snap.skipped.length,1);assert.match(snap.skipped[0],/Crop too small/);
+ const before=await readFile(out+'/data/listings.json','utf8');
+ const many={version:'v2',items:[good(1),...[1,2,3,4].map(n=>({...tiny,item:{...tiny.item,id:'event:BAD_'+n}}))]};
+ await assert.rejects(buildExport(many,download,async()=>many,out),/Too many listings failed/);
+ assert.equal(await readFile(out+'/data/listings.json','utf8'),before);
+ }finally{await rm(root,{recursive:true,force:true});}});

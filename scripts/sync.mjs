@@ -2,7 +2,15 @@ import {readFile,writeFile,mkdir,copyFile,rm,rename} from 'node:fs/promises';
 import {createRequire} from 'node:module';import {pathToFileURL} from 'node:url';import {createHash} from 'node:crypto';
 const require=createRequire(import.meta.url),{render}=require('./render.cjs'),{cropPoster}=require('./crop.cjs');
 export function escapeHtml(value){return String(value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
-export async function request(action,extra={}){
+// The Sheet lock is held for a few seconds at a time by inbox runs and review saves.
+// Retry a busy Sheet a few times instead of failing the whole build.
+export async function request(action,extra={},waits=[20000,40000,60000]){
+ for(let attempt=0;;attempt++){
+  try{return await requestOnce(action,extra);}
+  catch(error){if(attempt>=waits.length||!/saving another change/i.test(error.message))throw error;console.log('Sheet busy; retrying '+action+' in '+waits[attempt]/1000+'s.');await new Promise(r=>setTimeout(r,waits[attempt]));}
+ }
+}
+async function requestOnce(action,extra){
  const endpoint=process.env.EXPORT_URL,token=process.env.EXPORT_TOKEN;
  if(!endpoint||!/^https:\/\/script\.google\.com\/macros\/s\/[A-Za-z0-9_-]+\/exec$/.test(endpoint)||!token||token.length<32)throw new Error('Set EXPORT_URL and EXPORT_TOKEN repository secrets.');
  const response=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token,action,...extra}),signal:AbortSignal.timeout(90000)});
@@ -23,7 +31,7 @@ export async function buildExport(manifest,getImage,verify,output='docs',prepare
  const stage=output+'-staging';await rm(stage,{recursive:true,force:true});await mkdir(stage+'/posters',{recursive:true});await mkdir(stage+'/assets',{recursive:true});await mkdir(stage+'/data',{recursive:true});
  for(const file of ['styles.css','assets/app.js'])await copyFile(output+'/'+file,stage+'/'+file);
  const cache=new Map(),fields=['publication_hash','id','kind','title','start_date','end_date','start_time','end_time','venue','address','area','organizer','price','contact','registration_url','description','categories','age_info','source_account','place_type','last_checked','published_at','location_note','valid_until','expiry_mode'];
- const items=[];
+ const items=[],skipped=[];
  // Sequential source downloads avoid concurrent Apps Script/Drive quota pressure.
  for(const entry of manifest.items){
   if(!entry.item||!Array.isArray(entry.images)||entry.images.length>50)throw new Error('Invalid listing gallery');
@@ -31,6 +39,7 @@ export async function buildExport(manifest,getImage,verify,output='docs',prepare
   if(!/^(event|place):[A-Za-z0-9_-]{1,180}$/.test(item.id)||!item.id.startsWith(item.kind+':')||!item.title)throw new Error('Invalid listing');
   if(!/^https?:\/\//i.test(item.registration_url))item.registration_url='';
   const posters=[];
+  try{
   for(const image of entry.images){
    const key=JSON.stringify([image.fileId,image.crop]);let local=cache.get(key);
    if(!local){
@@ -41,8 +50,17 @@ export async function buildExport(manifest,getImage,verify,output='docs',prepare
     local=prepared.local;await writeFile(stage+'/'+local,prepared.crop);cache.set(key,local);
    }if(!posters.includes(local))posters.push(local);
   }
+  }catch(error){
+   // One bad image must not stop the whole site. Leave this listing out (a missing
+   // listing is better than a wrong one) and flag it in the GitHub run summary.
+   skipped.push(item.id+' "'+item.title+'": '+error.message);
+   console.log('::warning::Skipped '+item.id+' "'+item.title.replace(/[\r\n]/g,' ')+'": '+error.message);
+   continue;
+  }
   item.poster=posters[0]||'';item.posters=posters;items.push(item);
  }
+ // Many failures at once points to a wider problem (Drive, quota, a code bug): keep the old site.
+ if(skipped.length>Math.max(3,Math.floor(manifest.items.length/5)))throw new Error('Too many listings failed ('+skipped.length+' of '+manifest.items.length+'); previous site preserved.');
  const current=await verify();if(current.version!==manifest.version&&publicationSignature(current)!==publicationSignature(manifest)){const error=new Error('Listings or crops changed during export; keeping previous site.');error.latestManifest=current;throw error;}
  const snapshot={items,status:null,exported_at:new Date().toISOString()},base=String(process.env.PUBLIC_URL||'').replace(/\/?$/,'/');
  if(base!=='/'&&!/^https:\/\//.test(base))throw new Error('PUBLIC_URL must use HTTPS');
@@ -51,7 +69,7 @@ export async function buildExport(manifest,getImage,verify,output='docs',prepare
  await writeFile(stage+'/index.html',html);await writeFile(stage+'/data/listings.json',JSON.stringify(snapshot));await writeFile(stage+'/.nojekyll','');await writeFile(stage+'/robots.txt','User-agent: *\nAllow: /\n'+(base!=='/'?'Sitemap: '+base+'sitemap.xml\n':''));
  if(base!=='/')await writeFile(stage+'/sitemap.xml','<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>'+escapeHtml(base)+'</loc></url></urlset>');
  const backup=output+'-previous';await rm(backup,{recursive:true,force:true});await rename(output,backup);try{await rename(stage,output);}catch(e){await rename(backup,output);throw e;}await rm(backup,{recursive:true,force:true});
- console.log('Built '+items.length+' listings from '+cache.size+' approved image/crop combinations.');return snapshot;
+ console.log('Built '+items.length+' listings from '+cache.size+' approved image/crop combinations.'+(skipped.length?' Skipped '+skipped.length+' with image problems.':''));snapshot.skipped=skipped;return snapshot;
 }
 // Only cropped public images are kept in memory, within this run. Each attempt
 // rebuilds the staged site from the latest manifest, so removals cannot linger.
