@@ -2,6 +2,7 @@
 
 ## About me
 - I'm not an experienced developer. Explain trade-offs simply and warn me before hard-to-undo changes.
+- Recommend the fastest workable setup outright (for example local over hosted when only I use it) instead of listing options for me to pick from.
 - Push back on low-value or premature work. Prefer the simplest thing that works. Only add a feature when a real screenshot shows a real problem.
 - A missing listing is better than a wrong one on the website.
 - Give me one small piece at a time, not everything at once.

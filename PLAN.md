@@ -19,7 +19,7 @@ Build one small piece at a time. Nothing below is started.
 - [ ] Quick win 1: load images as Drive thumbnails that the browser fetches directly, and prefetch the next item's images. Needs a test; it may be blocked inside the dialog in some browsers.
 - [ ] Quick win 2: make save return fast. Write only the decision, run the view rebuild shortly afterwards on a trigger, and drop the item from the dialog straight away.
 - [ ] Short daily queue, most important items first. Items I skip still follow the publish tiers, so missing days stalls nothing. Every action saves on its own, so stopping halfway loses nothing.
-- [ ] Review outside the Sheet (my wish, 2026-11-01): a review page on my computer that shows screenshots straight from the Drive inbox (synced by Google Drive for desktop, so images load from disk) and sends each decision to a small Apps Script endpoint that writes one row and returns. The heavy view rebuild runs later on a trigger. Open question: do I only review on this computer, or also on my phone? Phone means a hosted page instead of a local one.
+- [ ] Review outside the Sheet (my wish, 2026-11-01): a review page on my computer that shows screenshots straight from the Drive inbox (synced by Google Drive for desktop, so images load from disk) and sends each decision to a small Apps Script endpoint that writes one row and returns. The heavy view rebuild runs later on a trigger. Only on my office computer (answered 2026-11-01), so a local page, no hosting. Steps, one at a time: (1) read-only local page that lists items waiting for review and shows their screenshots from the synced Drive folder; (2) the save endpoint plus approve/reject buttons; (3) move the view rebuild to a trigger.
 
 **3. Dates (old posts get the current year)**
 - [ ] Extraction V2 returns `date_basis` (`printed_year`, `weekday_matched`, `assumed_year`, `relative`, `guessed`), `printed_weekday`, and `post_date_text` (publish date or age if visible, such as "12 Oct 2025" or "3w"). Pass the screenshot capture time as a hint used only for relative dates like "this Saturday".
@@ -129,7 +129,7 @@ Draft of the value paragraph for the prompt:
 - Titles are escaped by `scriptJson_` before going into dialogs. Not every dialog was checked.
 
 ## Decisions
-- **2026-11-01: Review moves out of the Sheet.** Replaces "full-page web app only if the quick wins are not enough". The Sheet stays the data store; only the review screen moves.
+- **2026-11-01: Review moves out of the Sheet, to a local page on my office computer only.** No hosted version: hosting would be slower. Replaces "full-page web app only if the quick wins are not enough". The Sheet stays the data store; only the review screen moves.
 - **2026-11-01: Claude pushes directly to `main`.** I approved it. Consequence: a push that touches `apps-script/` uploads to the live Apps Script project, and any push rebuilds the site, so Claude batches changes into one push and tells me what went live. Replaces the branch idea.
 - **2026-11-01: Ordinary restaurants and cafes sent without an event count as things to do** (`place_type` restaurant). A cafe that only hosted an event stays a venue only.
 - **2026-11-01: Saved text is the full extraction.** One `page_text` per screenshot, capped at 20,000 characters, kept in the Text Archive. Why: later re-judging depends on the complete text.
