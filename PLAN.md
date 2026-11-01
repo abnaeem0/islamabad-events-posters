@@ -1,6 +1,6 @@
 # PLAN.md
 
-Last updated: 2026-10-31. This is the only plan file: priorities, later work, bugs, decisions and open questions all live here. Update it in every commit. Within each section, hard-to-undo and foundational items come first.
+Last updated: 2026-11-01. This is the only plan file: priorities, later work, bugs, decisions and open questions all live here. Update it in every commit. Within each section, hard-to-undo and foundational items come first.
 
 Background: the Claude doc "Islamabad Events: Crop, Category and Workflow Plan" (https://claude.ai/artifact/MRqKvJqzCzcGwifQGEkg5m) holds the longer early discussion and the V1 prompt text. It is no longer updated; this file is the source of truth. Once `Prompts.gs` exists, the prompts live there. The "Islamabad Out & About: Requirements" doc has not been seen.
 
@@ -11,7 +11,8 @@ Build one small piece at a time. Nothing below is started.
 - [ ] Safe test copy: copy of the Sheet and Apps Script, a separate test Drive inbox, its own Script Properties, and a separate free Gemini API key. Leave `PUBLICATION_TARGET` unset so it cannot publish. Why: failed Gemini calls set shared pause flags, and pushes to `main` change the live script.
 - [ ] Create `Prompts.gs` with the current prompts moved over unchanged as V1. Store `prompt_version` and Gemini's raw JSON answer with each extraction. Why: lets us compare prompt versions and re-run old data later. No behaviour change.
 - [ ] Add the new fields (see "Tags and value" and "Dates") inside the existing `companion_clues` JSON, so no sheet columns change.
-- [ ] Decide whether judgments are made in the image call or a separate text-only second call. Recommended: second call, so rules can change without re-reading images.
+- [ ] Build judgments (kind, why_useful, tags, local_relevance) as a separate text-only second step. The image call only extracts facts and boxes. Why: when I change categories, I re-run the saved text, not the images. New uploads by default; old posts can be re-run to test a prompt.
+- [ ] Check the saved text is complete. `visible_text` is capped at 3000 characters and the prompt asks only for "relevant text", so a long caption can be cut, and re-judging old posts depends on it. Raise or remove the cap and ask for all text of the primary post.
 
 **2. Review speed (my biggest daily pain: loading images, and saving)**
 - [ ] Measure first in the test copy: time the dialog opening, the image load and the save separately. Likely causes, from reading the code (not timed): (a) images are sent as full base64 text through `google.script.run` (`vrImage_`, up to 6 MB each; thumbnails only in preview mode); (b) a save (`saveVisualDecision`) can read whole tabs up to 11 times, rebuilds the canonical list up to 4 times, then rebuilds all derived views (`refreshEventViews_`) and reformats dates.
@@ -37,13 +38,14 @@ Build one small piece at a time. Nothing below is started.
 - [ ] "Group selected as one post" menu item in the Sheet.
 - [ ] Posting rules (see Decisions).
 - [ ] Test whether the "Find venue" lookup (`Research.gs`) works on my free key, in the test copy only. If it is refused, disable its menu item.
+- [ ] Area filter on the site: choose several sectors at once (F-6, E-7, F-8) instead of one. Today `area` is a single value in `src/Noticeboard.tsx` and in the URL (`?area=`), so this means a multi-select and a list in the URL. Check `src/render.tsx` and `scripts/site.test.mjs` too.
 
 ## Later
 **Places and the weekly review**
 - [ ] Place aliases and a "same as…" merge (Trail 5, Trail-5 Margalla, T5). The AI suggests; I confirm each one. Never merged automatically. `VenueDirectory.gs` has no aliases today.
 - [ ] Weekly review stage 1, plain code: candidates (same title 3+ times in 90 days, same venue and organizer, repeat course providers).
 - [ ] Weekly review stage 2, one text-only LLM call per batch: judge candidates, write suggestions into Review. Never edits listings directly.
-- [ ] "Add to Places" action linking a venue to its past events.
+- [ ] "Add to Places" action linking a venue to its past events. This is how a recurring workshop location becomes a thing to do; I confirm each one.
 - [ ] Propose 10 to 15 clean filter groups from free-form tags, and group parked posts into ideas for Islamabad.
 - [ ] Refresh `last_seen` when the same organizer appears again.
 
@@ -59,6 +61,8 @@ Build one small piece at a time. Nothing below is started.
 
 **Public site**
 - [ ] A weekend board: events first, then things to do. "Dates to be confirmed" strip, collapsed, below Upcoming.
+- [ ] Things to do: activity chips (hiking, cycling, swimming) that also filter events; a place card lists the upcoming events held there; an offer shows as a limited-time note on its place card; products carry a "to buy" tag.
+- [ ] Map, and a shortlist around my location (after the multi-sector filter).
 - [ ] Past events: last 30 days visible, older ones rolled into series, search covers everything, pin option, "Older / Inspiration" toggle.
 - [ ] "Report a problem" link, including "Know the date or time? Tell us". Suggestions land in Review and never change data. Optional "Publish now" button.
 - [ ] Attribution and a "contact me to remove this" line.
@@ -76,18 +80,28 @@ Build one small piece at a time. Nothing below is started.
 - Paid Gemini tier: turns off free-tier data use and enables Google Search grounding. Costs money.
 - A 1 to 2 hour grace period before confident items publish. Start without it and see how often confident items are wrong.
 
-## Tags and value (confirmed 2026-10-31; wording still to be drafted into `Prompts.gs`)
-The board answers "what can I do in Islamabad this weekend", with events at its core. Value is the same for visitors and residents, so there is no visitor or resident split. For every post Gemini returns:
-1. **kind**: `event` (dated, the core and most common), `place` (venues such as pools, riding clubs, escape rooms, and places where activities like hiking or cycling happen), `course`, `offer`, `trip` (day trips and longer trips starting from Islamabad), `product` (things to buy, such as games; placeless), `not_useful`. Activities are tags on places, not a kind.
-2. **lifecycle**: `dated`, `ongoing`, `seasonal`, `time_limited`. A place needs `ongoing` or `seasonal`, so a cafe that hosted one workshop stays a venue.
-3. **why_useful**: one sentence on what someone could do because of this post. Empty only when `not_useful`.
-4. **local_relevance**: `islamabad_rwp`, `trip_from_here`, `not_local`.
-5. **tags**: free-form topics (hiking, pottery, kids), used for search and filters.
+## Tags and value (settled 2026-11-01; can keep changing)
+Events are the backbone of the site. Everything else answers "what can I do on a day when no event suits me". For every post Gemini returns:
+1. **kind**
+   - `event`: anything dated that you can attend. This includes dated courses and workshops, markets, and day trips or longer trips that leave on a date.
+   - `thing_to_do`: fixed things you can do on any day: waterfalls, trails, escape rooms, bowling, riding clubs, pools, standing courses, trip operators. Shown on the Things to do tab. The existing `place_type` (activity, experience, course, recurring_event, attraction, day_trip, restaurant) stays as its sub-label.
+   - `product`: things to buy and use yourself, such as murder mystery games and craft kits. Placeless. Shown in Things to do with a "to buy" tag.
+   - `not_useful`: nothing to do or buy in or from Islamabad.
+2. **why_useful**: one sentence on what someone could do because of this post. Empty only when `not_useful`.
+3. **local_relevance**: `islamabad_rwp`, `trip_from_here`, `not_local`.
+4. **tags**: free-form, including activities (hiking, cycling, swimming). Activities are tags, not kinds.
+5. **valid_until** (for time-limited items such as offers) and **recurrence** (only if printed on the post).
 
-Also returned: `implied_facts`, `recurrence` (only if printed), `location_type` (`fixed`, `area_only`, `tba`, `multiple`, `online`, `trip`, `none`), and the date fields above. Offers and courses are shown while live, with an expiry and a "limited time" or "enrolling now" tag, then become facts on the place ("runs swimming discounts, last seen Oct 2026").
+Also returned: `implied_facts`, `location_type` (`fixed`, `area_only`, `tba`, `multiple`, `online`, `trip`, `none`), and the date fields under "Dates".
+
+**Offers are not a kind.** An offer is an advertisement that expires. It does two jobs: it shows as a limited-time note on its place while valid, and it leaves a lasting fact on that place ("offers horse riding", "has a pool"). If the business is something you could use on an ordinary day, the offer creates or updates its thing_to_do entry. Otherwise it is `not_useful`.
+
+**Venue versus thing to do.** A venue becomes a thing_to_do only when you could use it on an ordinary day (Trail 5, a riding club) or when it keeps hosting recurring workshops. The weekly review suggests the second case and I confirm. A cafe that hosted one event stays a venue only, in the Venue Directory.
+
+**Trail 5 (judgment call).** One thing_to_do record, tagged `hiking`, that is also the venue for events such as the Sunday hike. The event stays an event and links to the place; the place card lists the upcoming events held there. They are not duplicates, because one is standing and the other is dated.
 
 Draft of the value paragraph for the prompt:
-> Our readers are people doing things in Islamabad, visitors and residents alike, planning what to do this weekend. For every post, answer: what could someone do because of this post? Events are the core. Also valuable: recurring classes and courses; discounts and offers (a reduced swimming fee shows there is a pool someone can use); venues such as pools, riding clubs and escape rooms; activities such as hiking or cycling and where they can be done; day trips and longer trips starting from Islamabad; games you can buy. Write why_useful in one sentence. If nothing here could help someone do something in or from Islamabad, leave why_useful empty and set kind to not_useful (unrelated product sales, brand promos, online-only content, recruitment, giveaways, news with nothing to attend). Also list implied_facts: anything the post reveals about a place or provider that stays true after the post expires (has a pool, offers pottery classes, runs discounts), each with a quote.
+> Our readers are people doing things in Islamabad, visitors and residents alike, planning what to do this weekend. Events are the backbone. For every post, answer: what could someone do because of this post? Dated things you can attend are events, including dated courses, workshops and trips. Fixed things you can do on any day (trails, waterfalls, escape rooms, bowling, riding clubs, pools) are things to do. Things to buy and use yourself (games, craft kits) are products. An offer or discount is an advertisement that expires: record its end date, and also record what it reveals about the business (a reduced swimming fee shows there is a pool someone can use). Write why_useful in one sentence. If nothing here could help someone do or buy something in or from Islamabad, leave why_useful empty and set kind to not_useful (unrelated product sales, brand promos, online-only content, recruitment, giveaways, news with nothing to attend). List implied_facts: anything the post reveals about a place or provider that stays true after the post expires (has a pool, offers pottery classes, runs discounts), each with a quote.
 
 ## Bugs
 - [ ] Poster crops cut through text on the left and right (Wood Furniture Making, IRU weekly calendar).
@@ -99,6 +113,7 @@ Draft of the value paragraph for the prompt:
 - [ ] One failing source image can fail the whole site build and keep the old site. From reading the code: the export refuses non-JPEG/PNG or over 6 MB, the crop decoder caps at about 5 megapixels, and nothing skips a failing item. Not yet seen. May explain listings with no image.
 - [ ] The "Find venue" lookup uses Google Search grounding, which Google lists as not available on the free tier for most models, including the default `gemini-3.5-flash-lite`. It probably fails on my key. Not tested. If a refusal comes back as HTTP 429, it would set the shared Gemini pause (15 minutes or more) and stall extraction, so test it only in the test copy.
 - [ ] Everything in the inbox is sent to Gemini, and on the free tier Google may use it to improve its products (see Decisions).
+- [ ] Saved text may be incomplete: `visible_text` is capped at 3000 characters and asks only for "relevant text" (`Gemini.gs`). Long captions can be cut, and re-judging old posts depends on it.
 - [ ] Some listings get no image when Gemini returns `use_image=false`. Not reproduced.
 - [ ] Handles from a neighbouring post become the organizer. Not reproduced.
 - [ ] `groupNeighbourScreenshots_` is never called, so grouping before extraction does not happen.
@@ -111,6 +126,13 @@ Draft of the value paragraph for the prompt:
 - Titles are escaped by `scriptJson_` before going into dialogs. Not every dialog was checked.
 
 ## Decisions
+- **2026-11-01: Four kinds: event, thing_to_do, product, not_useful. `lifecycle` is dropped.** Why: sorting by when and where someone uses a thing matches how I use the site, and the Sheet already separates Events from Places. Dated courses and day trips are events. An offer is an expiring note attached to a place, not a kind. `kind` plus `valid_until`, `recurrence` and tags now carry what `lifecycle` did. Replaces the seven-kind list of 2026-10-31.
+- **2026-11-01: Activities stay tags, and one place can also be a venue (Trail 5).** Judgment call. Why: "hiking" is something you do at places, not a thing you open, so a kind for it would list Trail 5 twice. Tags let "hiking" find the trail and the Sunday hike. Changeable later because the raw extraction is stored.
+- **2026-11-01: Judgments run as a separate step on the saved text.** New uploads by default; changing categories means re-running the saved text, and old posts can be re-run to test a prompt. Why: no image re-reads, so it is cheap and fast.
+- **2026-11-01: Filenames do not matter.** Any screenshot from any app. Android names start with the app name, then the time; iPhone is untested. Grouping falls back to Drive metadata or upload time (see Later).
+- **2026-11-01: Assumptions confirmed.** Keep the Sheet tabs; the site sections are Upcoming, Things to do and an Older toggle.
+- **2026-11-01: The area filter will allow several sectors at once.** A map and a shortlist near my location come later.
+- **2026-11-01: Events are the backbone; the rest can keep changing.** Why: so nothing else needs to be locked in. Store raw output so changes do not mean re-reading images.
 - **2026-10-31: Value is the same for visitors and residents.** Drop the visitor/resident `audience` field and `visitor_travel`. One `why_useful` sentence instead. Why: I realised the value is the same for both groups. Events stay a separate kind because they are the most common.
 - **2026-10-31: The site is a "what can I do this weekend" board.** Kinds are event, place, course, offer, trip, product, not_useful. Placeless things such as games are allowed. Why: it matches what I actually save. Easy to change later as long as the raw extraction and `location_type` are stored; hiding them is a one-line site filter.
 - **2026-10-31: Place aliases are suggested by the AI and confirmed by me.** Never merged automatically.
@@ -124,7 +146,7 @@ Draft of the value paragraph for the prompt:
 - **2026-10-31: Any supported image in the inbox goes to Gemini.** No Instagram filename filter. Why: my choice, simpler, and iPhone later.
 - **2026-10-31: Retries stay as they are.** Gemini-busy files stay queued and retry with backoff; other failures keep one error row per file and retry daily at most.
 - **2026-10-31: Posting rule.** Publish when there is a title and a clean crop. A missing date, venue or price does not block. An unclear date shows with no date under "Dates to be confirmed", never a guessed one. No title or an unclear crop goes to Hold. Why: a missing listing beats a wrong one.
-- **2026-10-31: Ideas adopted from the other chats (originally 15 to 16 Oct).** Upcoming and "Things to do" split with an archived toggle; `lifecycle` field; free-form tags with a later job to group them; store the summary and full visible text for every screenshot; `date_basis`; unconfirmed items expire; Research drop zone and attribution line later.
+- **2026-10-31: Ideas adopted from the other chats (originally 15 to 16 Oct).** Upcoming and "Things to do" split with an archived toggle; `lifecycle` field (dropped again on 2026-11-01); free-form tags with a later job to group them; store the summary and full visible text for every screenshot; `date_basis`; unconfirmed items expire; Research drop zone and attribution line later.
 - **2026-10-30: Repo reviewed.** The GitHub crop is a plain rectangle cut with no checks beyond a 100 px minimum, so fixes belong in Apps Script and in `src/crop.ts`.
 - **2026-10-28: Venue is not a Place.** A cafe that hosted one workshop stays a venue. Why: otherwise Places fills with cafes.
 - **2026-10-28: Merge Research and Scouting into one private Parked tab.** Ideas are found later by the weekly review, not at upload.
@@ -139,7 +161,5 @@ Draft of the value paragraph for the prompt:
 - **2026-10-26: Keep the current stack** (Drive, Apps Script, Gemini, Sheet, hourly GitHub Pages). Why: it works and Gemini is reliable here.
 
 ## Open questions
-- Re-extract old records with the new prompt, or only new uploads? Suggested: new uploads plus a few old ones, to save free-tier calls.
-- An example screenshot filename (app name first, then timestamp) to check grouping.
-- Is the kind list right (event, place, course, offer, trip, product, not_useful)?
-- Assumed until told otherwise: keep the Sheet tabs for now instead of one sheet with a Status column; site sections are Upcoming, Things to do and an Older toggle.
+- How should code changes reach GitHub? Recommended: Claude works on a branch and I merge after trying it in the test copy. Why: a push to `main` that touches `apps-script/` uploads to the live script automatically. A branch needs write access for Claude.
+- Should ordinary restaurants and cafes with an offer count as things to do? Suggested: no, unless the post makes them a destination (a themed cafe, a famous buffet). Otherwise Things to do fills with restaurants.
