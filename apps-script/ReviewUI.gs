@@ -67,8 +67,10 @@ function getVisualPoster(sourceId,fileId,previewOnly,forceDrive){
   if(!githubPublishing_()&&previewOnly&&!forceDrive&&crop&&crop.public_asset_url&&crop.asset_signature===digestKey_(crop.crop_json))return {image:sharingConnection_().url+crop.public_asset_url,link:String(attached?attached.link:source.original_image_url||'')};
   return {image:vrImage_(attached?attached.fileId:source.original_image_file_id,previewOnly),link:String(attached?attached.link:source.original_image_url||'')};
 }
+// The Sheet dialog has an active spreadsheet; the local review page (a web app call) does not.
+function reviewSpreadsheet_(){return SpreadsheetApp.getActiveSpreadsheet()||SpreadsheetApp.openById(getSettings_().spreadsheetId);}
 function fixEventDateTimeDisplay(){
-  const ss=SpreadsheetApp.getActiveSpreadsheet();ss.setSpreadsheetTimeZone('Asia/Karachi');
+  const ss=reviewSpreadsheet_();ss.setSpreadsheetTimeZone('Asia/Karachi');
   ['Events','Upcoming Events','Event Review','Places & Activities','Event Records'].forEach(name=>{
     const sh=ss.getSheetByName(name);if(!sh||!sh.getLastRow())return;
     const heads=sh.getRange(1,1,1,sh.getLastColumn()).getValues()[0];
@@ -100,7 +102,7 @@ function visualEventRows_(){
 }
 function visualVersion_(record){return digestKey_(JSON.stringify({facts:VISUAL_FIELDS.map(k=>vrString_(record&&record[k],k)),poster:String(record&&record.original_image_file_id||''),research:String(record&&record.research_sources||''),policy:readOptionalRows_(LISTING_SETTINGS.TAB).filter(r=>String(r.listing_id).endsWith(':'+String(record&&record.group_id))).map(r=>r.updated_at)}));}
 function companionDraftForSource_(sourceId,targetGroup){
-  const sh=SpreadsheetApp.getActiveSpreadsheet().getSheetByName(COMPANION.TAB);if(!sh)return null;
+  const sh=reviewSpreadsheet_().getSheetByName(COMPANION.TAB);if(!sh)return null;
   const sources=vrRows_(PIPE.RAW);
   const rows=readObjects_(sh).filter(r=>{
     const base=sources.find(s=>String(s.id)===String(r.source_a));
@@ -181,7 +183,7 @@ function saveVisualDecision(payload){
   const lock=LockService.getScriptLock();lock.waitLock(20000);
   try {
     optionalReadCache_={};
-    const sheet=SpreadsheetApp.getActiveSpreadsheet();
+    const sheet=reviewSpreadsheet_();
     const source=vrRows_('Events').find(r=>String(r.id)===String(payload.sourceId));
     payload=Object.assign({},payload);
     if(!payload.groupId&&source&&source.group_id)payload.groupId=String(source.group_id);
@@ -250,7 +252,7 @@ function saveVisualDecision(payload){
         if(action==='place')related.forEach(r=>vrUpdateRow_('Events',r._row,{match_status:'place',review_reason:'',suggested_group_id:''}));
       }
       if(action==='not_local')enqueueRemovalLocked_(['event:'+groupId,'place:'+groupId]);
-      refreshEventViews_();fixEventDateTimeDisplay();
+      rebuildAfterReview_(payload);
       return {ok:true,groupId,destination:action==='not_local'?'excluded':PIPE.PLACES};
     }
     if(action==='merge'||action==='duplicate'){
@@ -295,12 +297,20 @@ function saveVisualDecision(payload){
     if(payload.applySharedVenue && !['duplicate','not_local','place','copy_place'].includes(action))applySharedVenue_(source,payload.sharedVenueIds||[],updated);
     if(action!=='duplicate'){const final=vrRows_(PIPE.UPCOMING).find(r=>String(r.group_id)===groupId);saveListingSettings_(final,'event',payload);saveConfirmedVenue_(final,payload);}
     // Rebuild after the short, validated sheet write.
-    refreshEventViews_();
-    fixEventDateTimeDisplay();
+    rebuildAfterReview_(payload);
     return {ok:true,groupId};
   }finally{lock.releaseLock();}
 }
 
+/**
+ * The Sheet dialog rebuilds the other tabs straight away (slow, but the Sheet shows the result at once).
+ * The local review page asks to defer it: the tabs are marked out of date and the next inbox run
+ * (every 5 minutes) or website export rebuilds them.
+ */
+function rebuildAfterReview_(payload){
+  if(payload&&payload.deferRefresh){markPipelineDirty_();return;}
+  refreshEventViews_();fixEventDateTimeDisplay();
+}
 /** Only copy confirmed location fields to chosen, still-missing siblings. */
 function sharedVenueTargets_(source,current){
   if(!source||!source.original_image_file_id)return [];

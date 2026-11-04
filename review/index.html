@@ -5,137 +5,280 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Local Review</title>
 <!--
- Local review page (step 1: view only). Open this file by double-clicking it on the office computer.
- Screenshots load straight from the Google Drive for desktop folder, so they appear instantly.
- The list of items comes from the Apps Script endpoint (action review_list), read only.
+ Local review page. Open this file by double-clicking it on the office computer.
+ It does everything the Sheet's review dialog does, using the same Apps Script code (apps-script/LocalReview.gs),
+ but loads screenshots straight from the Google Drive for desktop folder, prefetches the next item,
+ and saves in the background on "Save and next".
  The endpoint URL and review token are typed once and kept in this browser only. Nothing secret is in this file.
- The review token can only read the review list; it cannot export listings or download Drive files.
+ The dialog part below is ported from apps-script/ReviewDialog.html; keep the two in step until the Sheet dialog is retired.
 -->
 <style>
-:root{--bg:#f6f7f9;--card:#fff;--ink:#1d2430;--muted:#5d6878;--line:#dde2e8;--accent:#1f6feb;--warn:#b54708;--warnbg:#fff4e5}
-*{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 system-ui,-apple-system,"Segoe UI",Arial,sans-serif}
-header{display:flex;gap:12px;align-items:center;padding:10px 16px;background:var(--card);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:2}
-header h1{font-size:16px;margin:0}
-header .count{color:var(--muted)}
-header .spacer{flex:1}
-button{font:inherit;padding:6px 12px;border:1px solid var(--line);border-radius:6px;background:var(--card);cursor:pointer}
-button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
-button:disabled{opacity:.5;cursor:default}
-main{display:grid;grid-template-columns:260px 1fr;min-height:calc(100vh - 50px)}
-#list{border-right:1px solid var(--line);overflow:auto;max-height:calc(100vh - 50px);background:var(--card)}
-#list button{display:block;width:100%;text-align:left;border:0;border-bottom:1px solid var(--line);border-radius:0;padding:8px 12px}
-#list button.on{background:#e8f0fe}
-#list .t{font-weight:600;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-#list .i{color:var(--muted);font-size:12px}
-#item{padding:16px;overflow:auto;max-height:calc(100vh - 50px)}
-.issue{background:var(--warnbg);color:var(--warn);padding:8px 12px;border-radius:6px;margin-bottom:12px;font-weight:600}
-.cols{display:grid;grid-template-columns:1fr 1fr;gap:16px}
-.col{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:12px;min-width:0}
-.col h2{font-size:13px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin:0 0 8px}
-dl{display:grid;grid-template-columns:110px 1fr;gap:4px 10px;margin:0 0 12px}
-dt{color:var(--muted)}dd{margin:0;word-break:break-word}
-.shots{display:flex;gap:8px;overflow-x:auto;padding-bottom:4px}
-.shot{flex:0 0 auto}
-.shot img{height:62vh;max-width:none;border:1px solid var(--line);border-radius:6px;display:block;background:#eee}
-.shot .name{font-size:11px;color:var(--muted);max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.missing{height:62vh;width:220px;border:1px dashed var(--line);border-radius:6px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:12px;color:var(--muted)}
-.empty{color:var(--muted);padding:40px;text-align:center}
-#settings{max-width:560px;margin:40px auto;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:20px}
-#settings label{display:block;margin:12px 0 4px;font-weight:600}
-#settings input{width:100%;padding:8px;font:inherit;border:1px solid var(--line);border-radius:6px}
-#settings p{color:var(--muted);margin:4px 0}
-.err{color:#b42318;margin-top:10px;white-space:pre-wrap}
-.keys{color:var(--muted);font-size:12px}
+/* Page frame */
+#lr-bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:8px 16px;background:#fff;border-bottom:1px solid #dde2e8;position:sticky;top:0;z-index:50;font:14px system-ui,-apple-system,"Segoe UI",Arial,sans-serif}
+#lr-bar .tab{border:1px solid #dde2e8;background:#fff;border-radius:16px;padding:5px 12px;cursor:pointer}
+#lr-bar .tab.on{background:#145c97;border-color:#145c97;color:#fff}
+#lr-bar .spacer{flex:1}#lr-bar .muted{color:#65717f;font-size:12px}
+#lr-bar button.plain{border:1px solid #dde2e8;background:#fff;border-radius:6px;padding:5px 10px;cursor:pointer}
+#lr-saving{color:#145c97;font-size:12px}
+#lr-failures{background:#fef3f2;color:#b42318;border-bottom:1px solid #fecdca;padding:8px 16px;font:13px system-ui,Arial,sans-serif}
+#lr-failures button{margin-left:8px}
+#lr-main{display:grid;grid-template-columns:250px 1fr;align-items:start}
+#lr-list{position:sticky;top:46px;max-height:calc(100vh - 46px);overflow:auto;border-right:1px solid #dde2e8;background:#fff;font:13px system-ui,Arial,sans-serif}
+#lr-list button{display:block;width:100%;text-align:left;border:0;border-bottom:1px solid #eef0f3;background:#fff;padding:7px 10px;cursor:pointer}
+#lr-list button.on{background:#e8f0fe}#lr-list button.done{opacity:.45}#lr-list button.done .t::before{content:"✓ "}
+#lr-list .t{display:block;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}#lr-list .i{color:#65717f;font-size:11px}
+#lr-dialog{min-width:0}
+#lr-settings{max-width:560px;margin:40px auto;background:#fff;border:1px solid #dde2e8;border-radius:8px;padding:20px;font:14px system-ui,Arial,sans-serif}
+#lr-settings label{display:block;margin:12px 0 4px;font-weight:600}#lr-settings input{width:100%;padding:8px;font:inherit;border:1px solid #ccc;border-radius:6px}
+#lr-settings p{color:#65717f;margin:4px 0}.lr-err{color:#b42318;margin-top:10px;white-space:pre-wrap}
+.lr-empty{padding:40px;color:#65717f;text-align:center;font:14px system-ui,Arial,sans-serif}
+/* Review dialog (from apps-script/ReviewDialog.html) */
+
+*{box-sizing:border-box}[hidden]{display:none!important}body{font-family:Arial,sans-serif;color:#1d2936;margin:0;background:#fafbfc}h2{font-size:19px;margin:0 0 6px}.muted{color:#65717f;font-size:12px}.posters{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px}.poster{background:white;border:1px solid #ddd;padding:10px;border-radius:8px}.poster img{display:block;height:50vh;max-width:100%;margin:auto;object-fit:contain;cursor:zoom-in}.poster a{font-size:12px}.poster-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}.poster-foot{display:flex;gap:12px;align-items:center;margin-top:8px}.fields{margin-top:14px;border:1px solid #ddd;background:white}.field{display:grid;grid-template-columns:130px 1fr 1fr 1.15fr;gap:9px;align-items:center;padding:7px 10px;border-bottom:1px solid #eee}.field.changed{background:#fff9e8}.field label{font-weight:bold;font-size:12px}.field button{font-size:12px;text-align:left;overflow-wrap:anywhere;background:white;border:1px solid #ddd;border-radius:4px;padding:8px;cursor:pointer;white-space:pre-wrap}.field button.chosen{border:2px solid #2670ac;background:#edf6ff}.field input,.field textarea{width:100%;padding:8px;border:1px solid #ccc;border-radius:4px;font:13px Arial}.field textarea{min-height:60px;resize:vertical}.actions{position:sticky;bottom:0;background:#fafbfc;padding:12px 0;border-top:1px solid #ccc;display:flex;align-items:center;gap:8px;flex-wrap:wrap}button{cursor:pointer;padding:7px 10px}button.primary{background:#145c97;color:white;border:0;padding:12px 20px;border-radius:5px}select{padding:10px;max-width:100%}#status{font-size:13px;color:#585858}.loading{height:50vh;display:grid;place-items:center;color:#65717f;font-size:13px}.single .posters{grid-template-columns:1fr}.single .field{grid-template-columns:140px 1fr 1.2fr}.single .incoming-value{display:none}#evidence{margin-top:10px;white-space:pre-wrap}.zoom{position:fixed;inset:0;background:#15212a;z-index:100;display:flex;flex-direction:column}.zoom[hidden]{display:none}.zoom-tools{display:flex;align-items:center;gap:8px;padding:10px;color:white;background:#20313e}.zoom-tools span{margin-right:auto;font-size:13px}.zoom-view{flex:1;overflow:auto;padding:12px;cursor:grab;touch-action:pan-x pan-y}.zoom-view.dragging{cursor:grabbing}.zoom-view img{display:block;max-width:none;max-height:none;margin:auto;user-select:none}.research-box{margin:12px 0;padding:12px;border:1px solid #d6e1eb;border-radius:6px;background:#f1f7fc}.research-item{border-top:1px solid #d6e1eb;padding:10px 0;white-space:pre-wrap}.research-item a{margin-right:12px;font-size:12px}.source-row{padding:7px 0;display:flex;align-items:center;gap:10px}.source-row span{overflow-wrap:anywhere;font-size:12px}.draft textarea{width:100%;min-height:140px;padding:10px}.research-box iframe{width:100%;height:150px;border:0;background:white}.zoom-open:disabled{cursor:default;opacity:.45}#posterChoice{max-width:300px}
+
+#lr-dialog{padding:16px}
 </style>
 </head>
 <body>
-<header>
- <h1>Review</h1><span class="count" id="count"></span><span class="spacer"></span>
- <span class="keys">← → to move</span>
- <button id="prev">←</button><button id="next">→</button>
- <button id="refresh" class="primary">Refresh</button>
- <button id="openSettings">Settings</button>
-</header>
-<div id="app"></div>
+<div id="lr-bar"><b>Review</b><span id="lr-tabs"></span><span class="spacer"></span><span id="lr-saving"></span><span class="muted" id="lr-loaded"></span>
+<button class="plain" id="lr-refresh" title="Fetch the lists again">Refresh lists</button><button class="plain" id="lr-reload" title="Load this entry again from the Sheet">Reload entry</button><button class="plain" id="lr-sheet">Open Sheet</button><button class="plain" id="lr-settings-btn">Settings</button></div>
+<div id="lr-failures" hidden></div>
+<div id="lr-settings-host"></div>
+<div id="lr-main"><nav id="lr-list"></nav><div><div class="lr-empty" id="lr-empty" hidden></div><div id="lr-dialog">
+
+<h2 id="heading">Loading event…</h2><div class="muted" id="reason"></div>
+<div class="posters">
+<div class="poster" id="leftPoster"><div class="poster-head"><b>Current event poster</b><button class="zoom-open" id="leftZoom" disabled>Enlarge / zoom</button></div><div class="loading" id="leftLoading">Loading poster…</div><img id="leftImg" alt="Current event poster" hidden><div class="poster-foot"><a id="leftLink" target="_blank" rel="noopener" hidden>Open original in Drive</a></div></div>
+<div class="poster" id="rightPoster"><div class="poster-head"><b>Incoming poster</b><button class="zoom-open" id="rightZoom" disabled>Enlarge / zoom</button></div><div class="loading" id="rightLoading">Loading poster…</div><img id="rightImg" alt="Incoming poster" hidden><div class="poster-foot"><a id="rightLink" target="_blank" rel="noopener" hidden>Open original in Drive</a></div></div>
+</div>
+<p id="publishingHealth" class="muted"></p><button id="checkPublishing">Check publishing again</button><p><button id="fixCrop">Fix poster crop</button> <span class="muted" id="cropSummary">Adjust any published crop; the original stays intact.</span></p>
+<details id="evidence"><summary>Extraction confidence and notes</summary><div id="evidenceText" class="muted"></div></details>
+<p class="muted" id="hint">Click either value to use it, or type a correction in the final field. Yellow rows contain different values.</p>
+<details><summary>All linked original screenshots</summary><div id="sourceGallery"></div></details>
+<div class="research-box"><button id="research" disabled>Find missing details with Google Search</button> <span id="researchStatus" class="muted" role="status"></span><div id="researchResults"></div></div>
+<div class="draft" id="descriptionDraft" hidden><p class="muted" id="draftWarnings"></p><textarea id="draftText" readonly aria-label="Gemini combined description draft"></textarea><button id="useDescriptionDraft">Use this description</button></div>
+<div id="descriptionTools"><button id="copyCurrentDescription">Copy current description</button> <button id="copyIncomingDescription">Copy incoming description</button> <button id="appendDescription">Append incoming description</button> <button id="collateDescription">Collate descriptions with Gemini</button> <button id="fillCompanionBlanks" hidden>Fill blanks from companion draft</button></div>
+<div class="fields" id="fields"></div><div class="research-box"><label>Area / sector <input id="venueArea" placeholder="e.g. F-6"></label> <button id="findVenue">Find venue location</button><p><label><input type="checkbox" id="confirmVenue"> Remember this verified venue and branch for future listings</label></p><p class="muted">Use a branch-specific venue name. Unknown areas stay unlisted; venue names remain on cards.</p></div><div id="sharedVenueBox" class="research-box" hidden><b>Listings on this poster</b><p class="muted">Tick the listings to include. Not Local uses exactly these ticks. The separate “all listings” action excludes the whole poster. Venue changes apply only to eligible workshops.</p><div id="sharedVenueChoices"></div><p id="selectedCount" class="muted"></p></div>
+<div id="publicationOptions" class="research-box"><label><input id="approveAsIs" type="checkbox"> Approve as-is — accept deliberately missing details</label><p class="muted">Unresolved matches still need a merge/separate decision. An undated approved listing goes to Places &amp; Activities.</p><label>Expiry <select id="expiryMode"><option value="event">Use the event dates</option><option value="until">Valid until a specified date</option><option value="ongoing">Ongoing — no stated end</option></select></label> <input id="validUntil" type="date" aria-label="Offer expiry date"><label>Public location explanation <input id="locationNote" style="width:100%" placeholder="For example: meeting point shared after booking"></label></div>
+<div class="actions"><button id="previous">← Previous</button><button id="next">Next →</button><span id="position"></span><select id="decision" aria-label="Decision"></select><select id="posterChoice" aria-label="Display poster"><option value="existing">Keep current display poster</option><option value="incoming">Use incoming poster for display</option></select><select id="placeType" aria-label="Place type" hidden><option value="uncategorized">Categorize later</option><option value="activity">Activity / club / gym</option><option value="experience">Experience</option><option value="course">Course / classes</option><option value="recurring_event">Recurring event / market</option><option value="attraction">Attraction</option><option value="day_trip">Day trip</option><option value="restaurant">Restaurant / cafe</option></select><button class="primary" id="save" disabled>Save decision</button><button id="saveNext">Save and next →</button><span id="status" role="status" aria-live="polite"></span></div>
+<div id="unsavedPrompt" class="research-box" hidden><b>Unsaved changes</b><p>Save before moving to another entry?</p><button id="navSave">Save and continue</button><button id="navDiscard">Discard changes</button><button id="navStay">Stay here</button></div><div class="zoom" id="zoom" role="dialog" aria-modal="true" aria-label="Enlarged poster" hidden><div class="zoom-tools"><span id="zoomLabel">Poster — drag to move</span><button id="zoomOut" aria-label="Zoom out">−</button><button id="zoomIn" aria-label="Zoom in">+</button><button id="zoomFit">Fit</button><button id="zoomActual">100%</button><button id="zoomClose">Close (Esc)</button></div><div class="zoom-view" id="zoomView"><img id="zoomImg" alt="Enlarged original poster" draggable="false"></div></div>
+</div></div></div>
+<script type="text/plain" id="lr-dialog-script">
+const context=window.REVIEW_CONTEXT;
+let data=null,saved=false,busy=false,baseline="",pendingDirection=0,epoch=0,lastFocus=null,zoomScale=1,drag=null,researchResult=null,researchSelections=new Set();
+const queue=context.queue||[context];let queueIndex=Math.max(0,queue.findIndex(x=>x.mode===context.mode&&(context.mode==='review'?x.sourceId===context.sourceId:x.groupId===context.groupId)));
+const fields=['title','start_date','end_date','start_time','end_time','venue','address','organizer','price','contact','registration_url','description','categories','age_info','source_account'];
+const $=id=>document.getElementById(id),imageRequests=new Map();
+$('approveAsIs').onchange=()=>{if($('approveAsIs').checked&&!$('field-start_date')?.value)$('placeType').hidden=false;};
+function el(tag,cls,txt){const n=document.createElement(tag);if(cls)n.className=cls;if(txt!==undefined)n.textContent=txt;return n}
+function safeLink(a,url){if(/^https:\/\//i.test(url||'')){a.href=url;a.hidden=false}else a.hidden=true}
+// Local page: load the screenshot from the synced Drive folder first; ask the Sheet only if it is not on this computer yet.
+function fetchPoster(id,fileId,original=false){const key=(fileId||id)+(original?':original':':preview');if(!imageRequests.has(key)){const list=data&&data.sources||[];const src=list.find(s=>fileId&&s.fileId===fileId)||list.find(s=>!fileId&&s.id===id);const local=src&&src.label?localFileUrl(src.label):'';const request=new Promise((resolve,reject)=>{const viaSheet=()=>{const timer=setTimeout(()=>reject(new Error('Image request took too long. Try again or open the original.')),30000);google.script.run.withSuccessHandler(r=>{clearTimeout(timer);resolve(r)}).withFailureHandler(e=>{clearTimeout(timer);reject(e)}).getVisualPoster(id,fileId)};if(!local){viaSheet();return}const probe=new Image();probe.onload=()=>resolve({image:local,link:src.link||''});probe.onerror=viaSheet;probe.src=local});imageRequests.set(key,request);request.catch(()=>imageRequests.delete(key))}return imageRequests.get(key)}
+const posterLoads={};
+function loadPoster(side,id,fileId,url){
+ const generation=epoch,token={};posterLoads[side]=token;
+ const active=()=>generation===epoch&&posterLoads[side]===token;
+ const im=$(side+'Img'),loading=$(side+'Loading');let imageTimer;
+ im.onload=null;im.onerror=null;im.hidden=true;loading.hidden=false;loading.textContent='Loading poster…';$(side+'Zoom').disabled=true;safeLink($(side+'Link'),url);
+ if(!id){loading.textContent='No poster linked.';return}
+ function failed(e){if(!active())return;clearTimeout(imageTimer);im.onload=null;im.onerror=null;im.hidden=true;loading.hidden=false;loading.textContent=(e&&e.message)||'Preview unavailable. Open the original in Drive.';const retry=el('button','','Retry');retry.onclick=()=>{imageRequests.delete((fileId||id)+':preview');imageRequests.delete((fileId||id)+':original');loadPoster(side,id,fileId,url)};loading.append(retry)}
+ function show(original){fetchPoster(id,fileId,original).then(r=>{
+  if(!active())return;safeLink($(side+'Link'),r.link||url);if(!r.image){failed(new Error('Preview unavailable. Open the original in Drive.'));return}
+  let settled=false;
+  function unavailable(){if(settled||!active())return;settled=true;clearTimeout(imageTimer);im.onload=null;im.onerror=null;im.hidden=true;if(!original&&/^https:/i.test(r.image)){loading.textContent='Trying Drive preview…';show(true)}else failed(new Error('Preview timed out or could not be displayed. You can retry or open the original in Drive.'))}
+  im.onload=()=>{if(settled||!active())return;settled=true;clearTimeout(imageTimer);loading.hidden=true;im.hidden=false;$(side+'Zoom').disabled=false};im.onerror=unavailable;
+  imageTimer=setTimeout(unavailable,12000);im.src=r.image;
+ }).catch(failed)}
+ show(false);
+}
+function option(value,text){const o=el('option','',text);o.value=value;return o}
+function resetFields(values){document.querySelectorAll('[data-key]').forEach(x=>x.value=values[x.dataset.key]||'');document.querySelectorAll('.field button').forEach(x=>x.classList.remove('chosen'))}
+function render(d){epoch++;data=d;saved=false;busy=false;researchResult=null;researchSelections.clear();$('researchResults').replaceChildren();$('researchStatus').textContent='';$('descriptionDraft').hidden=true;$('useDescriptionDraft').disabled=false;$('unsavedPrompt').hidden=true;$('decision').disabled=false;$('posterChoice').disabled=false;$('placeType').disabled=false;$('save').textContent='Save decision';$('status').textContent='';document.querySelectorAll('#descriptionTools button').forEach(x=>x.disabled=false);$('heading').textContent=d.title||'Untitled event';$('reason').textContent=d.reviewReason||'';
+$('checkPublishing').hidden=d.mode==='holding';
+$('venueArea').value=d.venueLocation&&d.venueLocation.area||'';$('confirmVenue').checked=false;$('findVenue').disabled=false;$('fixCrop').disabled=d.mode==='holding';
+$('cropSummary').textContent=d.cropSummary?(d.cropSummary.crop_reason==='Crop checked manually'?'Crop checked manually':d.cropSummary.crop_status==='ready'?'Automatically cropped — check the edges if it looks wrong':d.cropSummary.crop_status==='skip'?'No useful image selected — listing can publish with its details':'Crop needs checking'):'Crop not prepared';
+const single=d.mode!=='review'||d.singleView;document.body.classList.toggle('single',single);$('rightPoster').hidden=single;$('posterChoice').hidden=single;
+$('evidenceText').textContent=['Confidence: '+(d.confidence||'Not recorded'),'Uncertain fields: '+(d.uncertainFields||'None listed'),d.extractionNotes||''].filter(Boolean).join('\n');
+const decision=$('decision');decision.replaceChildren();if(single)decision.append(option('edit','Save corrections'));else if(d.suggestedGroupId)decision.append(option('merge','Merge into original event'),option('duplicate','Duplicate — keep original unchanged'),option('separate','Keep as a separate event'));else decision.append(option('edit','Save corrected event'),option('duplicate','Duplicate — keep original unchanged'),option('separate','Keep as a separate event'),option('dismiss','Dismiss warning with these corrections'));
+if(d.mode!=='holding')decision.append(option('research','Move to Research — keep private'));
+if(d.mode==='place')decision.append(option('return_event','Move back to Events'));
+if(d.mode!=='holding')decision.append(option('copy_place','Copy to Places & Activities — keep event'),option('place','Move to Places & Activities'),option('not_local','Not local — exclude ticked listings'),option('not_local_poster','Not local — ALL listings (ignores ticks): '+(d.posterGroupCount||1)+' listings on this poster'));$('publicationOptions').hidden=d.mode==='holding';$('approveAsIs').checked=!!d.approvedAsIs;$('expiryMode').value=d.publication&&d.publication.expiry_mode||'event';$('validUntil').value=d.publication&&d.publication.valid_until||'';$('locationNote').value=d.publication&&d.publication.location_note||'';
+$('placeType').value=d.placeType||'uncategorized';$('placeType').hidden=d.mode!=='place';$('copyIncomingDescription').hidden=single;$('appendDescription').hidden=single;previousAction=decision.value;$('collateDescription').hidden=single;$('fillCompanionBlanks').hidden=!d.companionDraft;$('research').disabled=false;renderSourceGallery(d.sources||[]);
+const siblings=d.posterTargets||[{groupId:d.groupId,title:d.title,current:true}];$('sharedVenueBox').hidden=d.mode==='holding';const choices=$('sharedVenueChoices');choices.replaceChildren();siblings.forEach(r=>{const label=el('label');label.style.display='block';const check=el('input');check.type='checkbox';check.value=r.groupId;check.className='shared-venue-choice';check.checked=!!r.current;check.onchange=updateSelectedCount;label.append(check,document.createTextNode(' '+r.title+(r.current?' (current listing)':'')));choices.append(label)});updateSelectedCount();
+$('publishingHealth').textContent=d.publicationHealth?('Website: '+d.publicationHealth.status+' — '+d.publicationHealth.reason):'Website publishing has not been audited yet.';
+const host=$('fields');host.replaceChildren();const head=el('div','field');head.append(el('label','','Field'),el('b','','Current value'),el('b','incoming-value','Incoming value'),el('b','','Final value'));host.append(head);
+fields.filter(k=>d.mode!=='place'||! /_(date|time)$/.test(k)).forEach(k=>{const a=String(d.existing[k]||''),b=String(d.incoming[k]||'');const line=el('div','field'+(!single&&a!==b?' changed':''));const label=el('label','',k.replace(/_/g,' '));label.htmlFor='field-'+k;line.append(label);const input=el(['description','address','categories','contact'].includes(k)?'textarea':'input');if(k==='description')input.rows=6;input.id='field-'+k;input.dataset.key=k;input.value=single?a:(a||b);if(input.tagName==='INPUT'){if(/_date$/.test(k))input.type='date';else if(/_time$/.test(k))input.type='time'}
+const la=el('button',a?'chosen':'',a||'—'),rb=el('button','incoming-value'+(!a&&b?' chosen':''),b||'—');la.type=rb.type='button';la.onclick=()=>{input.value=a;la.classList.add('chosen');rb.classList.remove('chosen')};rb.onclick=()=>{input.value=b;rb.classList.add('chosen');la.classList.remove('chosen')};input.oninput=()=>{la.classList.remove('chosen');rb.classList.remove('chosen')};line.append(la,rb,input);host.append(line)});
+loadPoster('left',d.existingSourceId,d.existingFileId,d.existingLink);if(!single)loadPoster('right',d.incomingSourceId,d.incomingFileId,d.incomingLink);$('save').disabled=false;baseline=editSignature();updateNavigation();
+}
+let previousAction='';$('decision').onchange=function(){const next=this.value;
+const incomingOnly=a=>a==='separate'||(['place','copy_place'].includes(a)&&data.suggestedGroupId);
+if(incomingOnly(next)!==incomingOnly(previousAction)){
+ if(confirm('Reset the final fields to the '+(incomingOnly(next)?'incoming':'current')+' record? This replaces your unsaved field edits.')){resetFields(incomingOnly(next)?data.incoming:data.existing);$('posterChoice').value=incomingOnly(next)?'incoming':'existing'}else{this.value=previousAction;return}
+}
+previousAction=next;const blocked=['duplicate','not_local_poster','not_local','return_event','research'].includes(next);$('posterChoice').disabled=blocked;$('placeType').hidden=!['place','copy_place'].includes(next)&&data.mode!=='place';$('placeType').disabled=blocked;document.querySelectorAll('[data-key],.field button').forEach(x=>x.disabled=blocked);$('appendDescription').disabled=blocked;$('collateDescription').disabled=blocked;$('fillCompanionBlanks').disabled=blocked;$('research').disabled=blocked;
+$('hint').textContent=next==='return_event'?'Restore the preserved event and remove this activity entry. Unsaved activity edits are not applied to the event.':next==='not_local'?'Exclude only the ticked listings shown above. Unticked workshops stay.':next==='duplicate'?'Keep the original event and its display poster unchanged. The incoming source stays linked for reference.':next==='copy_place'?'Keep this event and save an ongoing place/activity copy. Check event-specific prices and dates.':next==='place'?'Save these details as a place or activity. Poster dates are not used as an expiry date. Check that prices and descriptions apply beyond this particular event.':'Click either value to use it, or type a correction in the final field.';
+};
+async function copyDescription(value){try{await navigator.clipboard.writeText(value);$('status').textContent='Description copied.'}catch(e){prompt('Copy this description:',value)}}
+$('copyCurrentDescription').onclick=()=>copyDescription(data&&data.existing.description||'');$('copyIncomingDescription').onclick=()=>copyDescription(data&&data.incoming.description||'');
+$('appendDescription').onclick=()=>{const input=$('field-description'),addition=(data&&data.incoming.description||'').trim();if(!input||!addition)return;if(!input.value.trim().includes(addition))input.value=[input.value.trim(),addition].filter(Boolean).join('\n\n');input.focus();input.dispatchEvent(new Event('input'));$('status').textContent='Descriptions combined. Edit the final text before saving.'};
+function saveCurrent(advance=0){if(!data||saved||busy)return;busy=true;const action=$('decision').value;const notLocalItems=selectedNotLocalItems();if(action==='not_local'&&!notLocalItems.length){$('status').textContent='Tick at least one listing. Nothing was excluded.';busy=false;return;}if(['not_local','not_local_poster'].includes(action)&&!confirm(action==='not_local_poster'?'Exclude ALL '+(data.posterGroupCount||1)+' listings sharing this poster, regardless of ticks?':'Exclude exactly '+notLocalItems.length+' ticked listing(s)?')){busy=false;return;}const fieldsOut={};document.querySelectorAll('[data-key]').forEach(x=>fieldsOut[x.dataset.key]=x.value);$('save').disabled=true;document.querySelectorAll('[data-key],.field button,.shared-venue-choice,#placeType').forEach(x=>x.disabled=true);updateNavigation();$('decision').disabled=true;$('posterChoice').disabled=true;$('status').textContent='Saving…';google.script.run.withSuccessHandler(result=>{saved=true;busy=false;document.querySelectorAll('.field input,.field textarea,.field button,#descriptionTools button,#researchResults button,#research,#useDescriptionDraft,#placeType').forEach(x=>x.disabled=true);$('status').textContent=result.destination==='Research'?'Saved privately in Research.':result.destination==='excluded'?'Excluded as not local.':result.destination==='Places & Activities'?'Saved to Places & Activities.':(result.destination==='background'?'Saving in the background…':'Saved.');$('save').textContent='Saved';updateNavigation();if(advance)navigate(advance);}).withFailureHandler(e=>{$('status').textContent='Error: '+e.message;busy=false;$('save').disabled=false;document.querySelectorAll('[data-key],.field button,.shared-venue-choice,#placeType').forEach(x=>x.disabled=['duplicate','not_local_poster','not_local','return_event','research'].includes(action));updateNavigation();$('decision').disabled=false;$('posterChoice').disabled=['duplicate','not_local_poster','not_local'].includes(action)}).saveVisualDecision({action,notLocalItems,fields:fieldsOut,mode:data.mode,sourceId:data.sourceId,groupId:data.groupId,suggestedGroupId:data.suggestedGroupId,posterChoice:$('posterChoice').value,placeType:$('placeType').value,researchKey:researchResult&&researchResult.key||'',researchSelections:Array.from(researchSelections),applySharedVenue:!$('sharedVenueBox').hidden,sharedVenueIds:Array.from(document.querySelectorAll('.shared-venue-choice:checked')).map(x=>x.value),reviewVersion:data.reviewVersion,confirmVenue:$('confirmVenue').checked,approveAsIs:$('approveAsIs').checked,publication:{area:$('venueArea').value,expiry_mode:$('expiryMode').value,valid_until:$('validUntil').value,location_note:$('locationNote').value}});}
+$('save').onclick=()=>saveCurrent();$('saveNext').onclick=()=>saveCurrent(1);
+function finalFields(){const values={};document.querySelectorAll('[data-key]').forEach(x=>values[x.dataset.key]=x.value);return values}
+function renderSourceGallery(sources){const host=$('sourceGallery');host.replaceChildren();const seen=new Set();sources.forEach(source=>{if(seen.has(source.fileId))return;seen.add(source.fileId);const line=el('div','source-row'),view=el('button','','View / zoom'),a=el('a','','Open in Drive');a.target='_blank';a.rel='noopener';safeLink(a,source.link);view.onclick=()=>{view.disabled=true;fetchPoster(source.id,source.fileId).then(r=>{if(!r.image)throw new Error('Preview unavailable; open the original in Drive.');lastFocus=view;$('zoom').hidden=false;$('zoomImg').onload=fitZoom;$('zoomImg').src=r.image;$('zoomClose').focus();}).catch(e=>$('status').textContent=e.message).finally(()=>view.disabled=false)};line.append(el('span','',source.label),view,a);host.append(line)})}
+$('fillCompanionBlanks').onclick=()=>{if(!data.companionDraft)return;const draft=data.companionDraft.fields;document.querySelectorAll('[data-key]').forEach(x=>{if(!x.value.trim()&&draft[x.dataset.key]){x.value=Array.isArray(draft[x.dataset.key])?JSON.stringify(draft[x.dataset.key]):draft[x.dataset.key];x.dispatchEvent(new Event('input'))}});$('status').textContent='Draft values filled. Check against the originals before saving.'};
+$('collateDescription').onclick=function(){if(!data)return;const entry=data;this.disabled=true;$('status').textContent='Preparing description draft…';google.script.run.withSuccessHandler(result=>{if(entry!==data)return;$('draftText').value=result.description;$('draftWarnings').textContent=(result.warnings||[]).join(' · ')||'Check the draft before using it.';$('descriptionDraft').hidden=false;this.disabled=false;$('status').textContent='Draft ready; nothing saved yet.'}).withFailureHandler(e=>{if(entry!==data)return;this.disabled=false;$('status').textContent=e.message}).collateVisualDescriptions({sourceId:data.sourceId,groupId:data.groupId,suggestedGroupId:data.suggestedGroupId,currentDescription:$('field-description').value})};
+$('useDescriptionDraft').onclick=()=>{if(saved)return;const field=$('field-description');field.value=$('draftText').value;field.dispatchEvent(new Event('input'));$('status').textContent='Description copied into the final field. Save to accept it.'};
+$('research').onclick=function(){if(!data||saved)return;const entry=data;this.disabled=true;$('researchStatus').textContent='Searching for missing details…';google.script.run.withSuccessHandler(result=>{if(entry!==data)return;if(saved){$('researchStatus').textContent='Result arrived after saving. Reopen the entry to apply research.';this.disabled=true;return}researchResult=result;researchSelections.clear();renderResearch(result);this.disabled=false;$('researchStatus').textContent=result.cached?'Cached result. Choose values to use.':'Research finished. Choose values to use.'}).withFailureHandler(e=>{if(entry!==data)return;this.disabled=false;$('researchStatus').textContent=e.message}).researchVisualDetails({sourceId:data.sourceId,groupId:data.groupId,mode:data.mode,fields:finalFields()})};
+function renderResearch(result){const host=$('researchResults');host.replaceChildren();if(!(result.suggestions||[]).length)host.append(el('p','muted','No verified missing-field suggestions found.'));
+(result.suggestions||[]).forEach((suggestion,index)=>{const line=el('div','research-item');line.append(el('b','',suggestion.field.replace(/_/g,' ')),el('p','',suggestion.value),el('p','muted',(suggestion.confidence||'')+' confidence · '+(suggestion.reason||'')));suggestion.source_indices.forEach(i=>{const source=result.sources[i];if(!source)return;const a=el('a','',source.title||'Source');a.target='_blank';a.rel='noopener';safeLink(a,source.url);line.append(a)});const use=el('button','','Use this value');use.onclick=()=>{if(saved)return;const field=$('field-'+suggestion.field);if(!field)return;if(field.value.trim()&&field.value!==suggestion.value&&!confirm('Replace your current final value for '+suggestion.field.replace(/_/g,' ')+'?'))return;field.value=suggestion.value;field.dispatchEvent(new Event('input'));researchSelections.add(index);use.textContent='Selected — save to accept';$('status').textContent='Research value copied to the final field. Nothing saved yet.'};line.append(use);host.append(line)});
+const report=el('details');report.append(el('summary','','Research report'),el('p','muted',result.report||''));host.append(report);
+if(result.searchHtml){const frame=document.createElement('iframe');frame.title='Google Search suggestions';frame.setAttribute('sandbox','allow-popups allow-popups-to-escape-sandbox');frame.srcdoc=result.searchHtml;host.append(frame)}
+}
+function applyZoom(scale){const im=$('zoomImg');zoomScale=Math.max(.1,Math.min(8,scale));im.style.width=Math.round(im.naturalWidth*zoomScale)+'px';$('zoomLabel').textContent='Poster '+Math.round(zoomScale*100)+'% — drag to move';}
+function fitZoom(){const im=$('zoomImg'),v=$('zoomView');applyZoom(Math.min((v.clientWidth-24)/im.naturalWidth,(v.clientHeight-24)/im.naturalHeight,1));v.scrollLeft=v.scrollTop=0}
+function openZoom(side){const im=$(side+'Img');if(!im.src||!im.naturalWidth)return;lastFocus=document.activeElement;$('zoom').hidden=false;$('zoomImg').onload=fitZoom;$('zoomImg').src=im.src;if($('zoomImg').complete)fitZoom();$('zoomClose').focus()}
+function closeZoom(){$('zoom').hidden=true;drag=null;if(lastFocus)lastFocus.focus()}
+['left','right'].forEach(side=>{$(side+'Zoom').onclick=()=>openZoom(side);$(side+'Img').onclick=()=>openZoom(side)});
+$('zoomClose').onclick=closeZoom;$('zoomIn').onclick=()=>applyZoom(zoomScale*1.3);$('zoomOut').onclick=()=>applyZoom(zoomScale/1.3);$('zoomFit').onclick=fitZoom;$('zoomActual').onclick=()=>applyZoom(1);
+$('zoomView').addEventListener('wheel',e=>{e.preventDefault();applyZoom(zoomScale*(e.deltaY<0?1.15:1/1.15))},{passive:false});
+$('zoomView').onpointerdown=e=>{if(e.pointerType!=='mouse')return;drag={x:e.clientX,y:e.clientY,left:$('zoomView').scrollLeft,top:$('zoomView').scrollTop};$('zoomView').setPointerCapture(e.pointerId);$('zoomView').classList.add('dragging')};$('zoomView').onpointermove=e=>{if(!drag)return;$('zoomView').scrollLeft=drag.left+drag.x-e.clientX;$('zoomView').scrollTop=drag.top+drag.y-e.clientY};function stopDrag(){drag=null;$('zoomView').classList.remove('dragging')}$('zoomView').onpointerup=stopDrag;$('zoomView').onpointercancel=stopDrag;
+document.addEventListener('keydown',e=>{if($('zoom').hidden)return;if(e.key==='Escape'){e.preventDefault();closeZoom()}if(e.key==='Tab'){const buttons=Array.from($('zoom').querySelectorAll('button'));if(e.shiftKey&&document.activeElement===buttons[0]){e.preventDefault();buttons.at(-1).focus()}else if(!e.shiftKey&&document.activeElement===buttons.at(-1)){e.preventDefault();buttons[0].focus()}}});
+
+function editSignature(){return JSON.stringify({fields:finalFields(),action:$('decision').value,poster:$('posterChoice').value,type:$('placeType').value,area:$('venueArea').value,confirmVenue:$('confirmVenue').checked,approval:$('approveAsIs').checked,expiry:$('expiryMode').value,until:$('validUntil').value,location:$('locationNote').value,siblings:Array.from(document.querySelectorAll('.shared-venue-choice:checked')).map(x=>x.value)});}
+function updateNavigation(){$('position').textContent=(queueIndex+1)+' / '+queue.length;$('previous').disabled=busy||queueIndex===0;$('next').disabled=busy||queueIndex>=queue.length-1;$('saveNext').disabled=busy||saved||queueIndex>=queue.length-1;}
+function requestNavigation(direction){if(busy)return;if(!saved&&editSignature()!==baseline){pendingDirection=direction;$('unsavedPrompt').hidden=false;$('navSave').focus();return;}navigate(direction);}
+function navigate(direction){if(busy)return;let index=queueIndex+direction;if(index<0||index>=queue.length){$('status').textContent='No more entries in this list.';return;}busy=true;updateNavigation();$('status').textContent='Opening entry…';
+ const load=()=>{if(index<0||index>=queue.length){busy=false;updateNavigation();$('status').textContent='No more available entries. Reopen the reviewer for a refreshed list.';return;}google.script.run.withSuccessHandler(d=>{queueIndex=index;render(d)}).withFailureHandler(e=>{if(/no longer exists|already reviewed/i.test(e.message)){index+=direction;load()}else{busy=false;updateNavigation();$('status').textContent=e.message}}).getVisualReviewData(queue[index]);};load();}
+function selectedNotLocalItems(){const checked=new Set(Array.from(document.querySelectorAll('.shared-venue-choice:checked')).map(x=>x.value));return (data&&data.posterTargets||[]).filter(r=>checked.has(r.groupId)).map(r=>({groupId:r.groupId,version:r.version}));}
+function updateSelectedCount(){$('selectedCount').textContent=Array.from(document.querySelectorAll('.shared-venue-choice:checked')).length+' listing(s) ticked';}
+$('checkPublishing').onclick=function(){if(!data||busy)return;this.disabled=true;$('publishingHealth').textContent='Checking website…';google.script.run.withSuccessHandler(r=>{this.disabled=false;$('publishingHealth').textContent=r?('Website: '+r.status+' — '+r.reason):'No active publication issue.';}).withFailureHandler(e=>{this.disabled=false;$('publishingHealth').textContent=e.message;}).checkReviewPublishing({groupId:data.groupId,mode:data.mode});};
+$('previous').onclick=()=>requestNavigation(-1);$('next').onclick=()=>requestNavigation(1);
+$('navSave').onclick=()=>{$('unsavedPrompt').hidden=true;saveCurrent(pendingDirection)};
+$('navDiscard').onclick=()=>{$('unsavedPrompt').hidden=true;navigate(pendingDirection)};
+$('navStay').onclick=()=>{$('unsavedPrompt').hidden=true;};
+document.addEventListener('keydown',e=>{if(!$('zoom').hidden||!$('unsavedPrompt').hidden||busy||e.ctrlKey||e.metaKey||e.shiftKey)return;const editable=e.target.closest('input,textarea,select,[contenteditable="true"]');if((e.key==='ArrowRight'||e.key==='ArrowLeft')&&(e.altKey||!editable)){e.preventDefault();requestNavigation(e.key==='ArrowRight'?1:-1);}});
+
+
+$('fixCrop').onclick=()=>{if(!data)return;$('status').textContent='The crop editor is still in the Sheet: select this listing\'s row there, then Sharing → Prepare selected for sharing.';if(lrSheetUrl)window.open(lrSheetUrl,'_blank');};
+$('findVenue').onclick=function(){if(!data||busy||saved)return;const entry=data;this.disabled=true;$('researchStatus').textContent='Looking up this venue…';google.script.run.withSuccessHandler(r=>{if(data!==entry)return;this.disabled=false;if(r.confirmed){if(!$('field-address').value.trim())$('field-address').value=r.address;$('venueArea').value=r.area||'';$('researchStatus').textContent='Previously confirmed venue details filled. Save to apply.';}else{researchResult=r;researchSelections.clear();renderResearch(r);$('researchStatus').textContent='Check the proposed address and branch before using it.';}}).withFailureHandler(e=>{if(data!==entry)return;this.disabled=false;$('researchStatus').textContent=e.message}).researchVenueLocation({sourceId:data.sourceId,groupId:data.groupId,mode:data.mode,fields:finalFields()});};
+
+let initialFinished=false;const initialTimer=setTimeout(()=>{if(!initialFinished)$('status').textContent='Loading is taking longer than expected. Close and reopen the reviewer if it does not finish.';},20000);
+google.script.run.withSuccessHandler(d=>{initialFinished=true;clearTimeout(initialTimer);try{render(d)}catch(e){$('status').textContent='Could not open reviewer: '+e.message}}).withFailureHandler(e=>{initialFinished=true;clearTimeout(initialTimer);$('status').textContent=e.message}).getVisualReviewData(context);
+</script>
 <script>
-const KEY='localReview.v1';
-const store={get(){try{return JSON.parse(localStorage.getItem(KEY)||'{}')}catch(e){return {}}},set(v){try{localStorage.setItem(KEY,JSON.stringify(v))}catch(e){}}};
-let settings=Object.assign({folder:'G:\\My Drive\\Islamabad Events Inbox',url:'',token:''},store.get());
-let items=[],index=0,loadedAt='';
-const app=document.getElementById('app');
-const el=(tag,attrs={},...kids)=>{const n=document.createElement(tag);for(const[k,v]of Object.entries(attrs)){if(k==='text')n.textContent=v;else if(k.startsWith('on'))n.addEventListener(k.slice(2),v);else n.setAttribute(k,v);}kids.flat(Infinity).forEach(k=>k!=null&&n.append(k));return n;};
-function fileUrl(name){const base=settings.folder.replace(/\\/g,'/').replace(/\/$/,'');return 'file:///'+base.split('/').map(encodeURIComponent).join('/').replace(/^([A-Za-z])%3A/,'$1:')+'/'+encodeURIComponent(name);}
-function save(){store.set(settings);}
+// ---- Local review page frame: settings, work lists, server bridge, background saves ----
+const LR_KEY='localReview.v1';
+const lrStore={get(){try{return JSON.parse(localStorage.getItem(LR_KEY)||'{}')}catch(e){return {}}},set(v){try{localStorage.setItem(LR_KEY,JSON.stringify(v))}catch(e){}}};
+let lrSettings=Object.assign({folder:'G:\\My Drive\\Islamabad Events Inbox',url:'',token:'',tab:'review',last:{}},lrStore.get());
+let lrQueues=null,lrSheetUrl='',lrLoadedAt='',lrPending=0,lrFailures=[],lrDone=new Set(),lrOptimistic=false,lrStarted=false;
+const lrPrefetch=new Map();
+const LR_TABS=[['review','To review'],['upcoming','Upcoming events'],['places','Places & activities'],['research','Research']];
+const LR_CALLS={getVisualReviewData:'get',saveVisualDecision:'save',researchVisualDetails:'research',researchVenueLocation:'venue',collateVisualDescriptions:'collate',checkReviewPublishing:'publishing',getVisualPoster:'poster'};
+const lrEl=(tag,attrs={},...kids)=>{const n=document.createElement(tag);for(const[k,v]of Object.entries(attrs)){if(k==='text')n.textContent=v;else if(k.startsWith('on'))n.addEventListener(k.slice(2),v);else n.setAttribute(k,v);}kids.flat(Infinity).forEach(k=>k!=null&&n.append(k));return n;};
+const lrKey=ctx=>JSON.stringify([ctx.mode,ctx.sourceId||'',ctx.groupId||'']);
+function lrSave(){lrStore.set(lrSettings);}
+function localFileUrl(name){const base=lrSettings.folder.replace(/\\/g,'/').replace(/\/$/,'');return 'file:///'+base.split('/').map(encodeURIComponent).join('/').replace(/^([A-Za-z])%3A/,'$1:')+'/'+encodeURIComponent(name);}
 
-function showSettings(message){
- const f=el('form',{id:'settings'},
-  el('h2',{text:'Settings'}),
-  el('p',{text:'Typed once and kept only in this browser on this computer.'}),
-  el('label',{for:'url',text:'Endpoint URL'}),el('input',{id:'url',value:settings.url,placeholder:'https://script.google.com/macros/s/…/exec'}),
-  el('p',{text:'Apps Script → Deploy → Manage deployments → Web app URL (the same one GitHub uses).'}),
-  el('label',{for:'token',text:'Token'}),el('input',{id:'token',type:'password',value:settings.token}),
-  el('p',{text:'The review token: run setupLocalReviewToken once in the Apps Script editor, or see Project Settings → Script Properties → LOCAL_REVIEW_TOKEN. Not the GitHub token.'}),
-  el('label',{for:'folder',text:'Screenshot folder'}),el('input',{id:'folder',value:settings.folder}),
-  el('div',{style:'margin-top:16px'},el('button',{class:'primary',type:'submit',text:'Save and load'})),
-  message?el('div',{class:'err',text:message}):null);
- f.addEventListener('submit',e=>{e.preventDefault();settings.url=f.url.value.trim();settings.token=f.token.value.trim();settings.folder=f.folder.value.trim()||settings.folder;save();load();});
- app.replaceChildren(f);
+async function lrCall(fn,args){
+ // text/plain keeps this a simple request, so the browser does not need a CORS preflight.
+ const res=await fetch(lrSettings.url,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({action:'review',token:lrSettings.token,fn,args})});
+ let data;try{data=await res.json();}catch(e){throw new Error('The Sheet did not answer properly (HTTP '+res.status+').');}
+ if(!data.ok){const message=data.error||'The Sheet refused the request.';throw new Error(/Unknown export action|Unauthorized/.test(message)&&fn==='list'?message+'\n\nIf this worked before, publish a new Web App version (Deploy → Manage deployments → Edit → New version) or check the token.':message);}
+ return data.result;
 }
 
-async function load(){
- if(!/^https:\/\/script\.google\.com\/macros\/s\/[A-Za-z0-9_-]+\/exec$/.test(settings.url)||settings.token.length<32){showSettings(settings.url?'Check the endpoint URL and token.':'');return;}
- document.getElementById('refresh').disabled=true;document.getElementById('count').textContent='Loading…';
- try{
-  // text/plain keeps this a simple request, so the browser does not need a CORS preflight.
-  const res=await fetch(settings.url,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({action:'review_list',token:settings.token})});
-  const data=await res.json();
-  if(!data.ok)throw new Error(data.error||'The Sheet refused the request.');
-  const keep=items[index]&&items[index].source_id;
-  items=data.items.filter(x=>!x.audit).sort((a,b)=>(Number(a.priority)||99)-(Number(b.priority)||99));
-  loadedAt=new Date(data.checked_at).toLocaleTimeString();
-  const saved=keep||store.get().last;index=Math.max(0,items.findIndex(x=>x.source_id===saved));
-  render();
- }catch(e){
-  const hint=/Unknown export action/.test(e.message)?'\n\nThe Apps Script web app is still on an older version. Publish a new version: Deploy → Manage deployments → Edit → Version: New version → Deploy.':'';
-  showSettings('Could not load the list: '+e.message+hint);
- }finally{document.getElementById('refresh').disabled=false;}
+// Stand-in for google.script.run, so the dialog code from the Sheet runs unchanged.
+function lrRunner(ok,fail){return new Proxy({},{get(_,name){
+ if(name==='withSuccessHandler')return f=>lrRunner(f,fail);
+ if(name==='withFailureHandler')return f=>lrRunner(ok,f);
+ if(name==='withUserObject')return ()=>lrRunner(ok,fail);
+ return (...args)=>{
+  const fn=LR_CALLS[name];if(!fn){fail&&fail(new Error('Not available on this page: '+String(name)));return;}
+  if(fn==='get'){const key=lrKey(args[0]);const cached=lrPrefetch.get(key);lrPrefetch.delete(key);(cached||lrCall('get',args)).then(r=>ok&&ok(r),e=>fail&&fail(e));return;}
+  if(fn==='save'&&lrOptimistic){lrOptimistic=false;lrBackgroundSave(args);ok&&ok({ok:true,destination:'background'});return;}
+  lrCall(fn,args).then(r=>{if(fn==='save')lrMarkDone(args[0]);ok&&ok(r);},e=>fail&&fail(e));
+ };
+}});}
+window.google={script:{run:lrRunner()}};
+
+function lrBackgroundSave(args){
+ const entry=queue[queueIndex],title=(data&&data.title)||'Untitled';lrPending++;lrStatus();
+ lrCall('save',args).then(()=>{lrMarkDone(args[0]);},e=>{lrFailures.push({entry,title,error:e.message});lrRenderFailures();})
+  .finally(()=>{lrPending--;lrStatus();});
+}
+function lrMarkDone(payload){lrDone.add(lrKey({mode:payload.mode,sourceId:payload.sourceId,groupId:payload.groupId}));lrRenderList();}
+function lrStatus(){const s=document.getElementById('lr-saving');if(s)s.textContent=lrPending?'Saving '+lrPending+' in the background…':'';}
+function lrRenderFailures(){
+ const box=document.getElementById('lr-failures');box.hidden=!lrFailures.length;box.replaceChildren();
+ lrFailures.forEach((f,i)=>box.append(lrEl('div',{},'Not saved: '+f.title+' — '+f.error,
+  lrEl('button',{onclick:()=>{lrFailures.splice(i,1);lrRenderFailures();lrOpen(f.entry);}},'Open it again'),
+  lrEl('button',{onclick:()=>{lrFailures.splice(i,1);lrRenderFailures();}},'Dismiss'))));
 }
 
-function shots(files){
- if(!files.length)return el('div',{class:'empty',text:'No screenshots linked.'});
- return el('div',{class:'shots'},files.map(f=>{
-  const box=el('div',{class:'shot'});
-  const img=el('img',{src:fileUrl(f.name),alt:f.name,loading:'lazy'});
-  img.addEventListener('error',()=>img.replaceWith(el('div',{class:'missing'},el('div',{text:'Not on this computer yet.'}),f.link?el('a',{href:f.link,target:'_blank',text:'Open in Drive'}):null)));
-  box.append(img,el('div',{class:'name',text:f.name,title:f.name}));return box;
- }));
+function lrShowSettings(message){
+ const f=lrEl('form',{id:'lr-settings'},
+  lrEl('h2',{text:'Settings'}),lrEl('p',{text:'Typed once and kept only in this browser on this computer.'}),
+  lrEl('label',{for:'lr-url',text:'Endpoint URL'}),lrEl('input',{id:'lr-url',value:lrSettings.url,placeholder:'https://script.google.com/macros/s/…/exec'}),
+  lrEl('p',{text:'Apps Script → Deploy → Manage deployments → Web app URL (the same one GitHub uses).'}),
+  lrEl('label',{for:'lr-token',text:'Review token'}),lrEl('input',{id:'lr-token',type:'password',value:lrSettings.token}),
+  lrEl('p',{text:'Run setupLocalReviewToken once in the Apps Script editor, or see Project Settings → Script Properties → LOCAL_REVIEW_TOKEN. Not the GitHub token.'}),
+  lrEl('label',{for:'lr-folder',text:'Screenshot folder'}),lrEl('input',{id:'lr-folder',value:lrSettings.folder}),
+  lrEl('div',{style:'margin-top:16px'},lrEl('button',{type:'submit',class:'primary',text:'Save and load'})),
+  message?lrEl('div',{class:'lr-err',text:message}):null);
+ f.addEventListener('submit',e=>{e.preventDefault();lrSettings.url=f.querySelector('#lr-url').value.trim();lrSettings.token=f.querySelector('#lr-token').value.trim();lrSettings.folder=f.querySelector('#lr-folder').value.trim()||lrSettings.folder;lrSave();location.reload();});
+ document.getElementById('lr-main').hidden=true;document.getElementById('lr-settings-host').replaceChildren(f);
 }
-function facts(rows){return el('dl',{},rows.filter(([,v])=>v).map(([k,v])=>[el('dt',{text:k}),el('dd',{text:v})]));}
 
-function render(){
- document.getElementById('count').textContent=items.length?(index+1)+' of '+items.length+' · loaded '+loadedAt:'Nothing to review · loaded '+loadedAt;
- if(!items.length){app.replaceChildren(el('div',{class:'empty',text:'Nothing waiting for review.'}));return;}
- const x=items[index];settings.last=x.source_id;save();
- const list=el('nav',{id:'list'},items.map((it,i)=>el('button',{class:i===index?'on':'',onclick:()=>{index=i;render();}},el('span',{class:'t',text:it.incoming.title||it.details.title||'Untitled'}),el('span',{class:'i',text:it.issue}))));
- const d=x.details;
- const incoming=el('section',{class:'col'},el('h2',{text:'New screenshot'}),
-  facts([['Title',x.incoming.title||d.title],['Date',[d.start_date,d.end_date].filter(Boolean).join(' to ')||x.incoming.date],['Time',[d.start_time,d.end_time].filter(Boolean).join('–')||x.incoming.time],['Venue',d.venue||x.incoming.venue],['Address',d.address],['Organizer',d.organizer],['Account',d.source_account],['Price',d.price],['Contact',d.contact],['Link',d.registration_url],['Confidence',x.confidence],['Unsure about',x.uncertain_fields],['Notes',x.notes],['Description',d.description]]),
-  shots(x.incoming_files));
- const hasExisting=x.existing_files.length||x.existing.title;
- const existing=hasExisting?el('section',{class:'col'},el('h2',{text:'Already in the Sheet'}),
-  facts([['Title',x.existing.title],['Date',x.existing.date],['Time',x.existing.time],['Venue',x.existing.venue]]),shots(x.existing_files)):null;
- const body=el('div',{id:'item'},el('div',{class:'issue',text:x.issue||'Review'}),x.differences?el('p',{text:x.differences}):null,el('div',{class:'cols',style:hasExisting?'':'grid-template-columns:1fr'},incoming,existing));
- app.replaceChildren(el('main',{},list,body));
- const on=list.querySelector('.on');if(on)on.scrollIntoView({block:'nearest'});
+function lrRenderTabs(){
+ const host=document.getElementById('lr-tabs');host.replaceChildren();
+ LR_TABS.forEach(([id,label])=>host.append(lrEl('button',{class:'tab'+(lrSettings.tab===id?' on':''),onclick:()=>lrSwitch(id)},label+' ('+((lrQueues&&lrQueues[id])||[]).length+')')));
+ document.getElementById('lr-loaded').textContent=lrLoadedAt?'List loaded '+lrLoadedAt:'';
 }
-function move(step){if(!items.length)return;index=Math.min(items.length-1,Math.max(0,index+step));render();}
-document.getElementById('prev').onclick=()=>move(-1);
-document.getElementById('next').onclick=()=>move(1);
-document.getElementById('refresh').onclick=load;
-document.getElementById('openSettings').onclick=()=>showSettings('');
-document.addEventListener('keydown',e=>{if(e.target.tagName==='INPUT')return;if(e.key==='ArrowRight'||e.key==='j')move(1);if(e.key==='ArrowLeft'||e.key==='k')move(-1);});
-load();
+function lrRenderList(){
+ const host=document.getElementById('lr-list');if(!host||typeof queue==='undefined')return;host.replaceChildren();
+ queue.forEach((q,i)=>host.append(lrEl('button',{class:(i===queueIndex?'on ':'')+(lrDone.has(lrKey(q))?'done':''),onclick:()=>lrOpen(q)},lrEl('span',{class:'t',text:q.title||'Untitled'}),lrEl('span',{class:'i',text:[q.issue,q.date].filter(Boolean).join(' · ')}))));
+ const on=host.querySelector('.on');if(on)on.scrollIntoView({block:'nearest'});
+}
+function lrUnsavedOk(){return !(typeof data!=='undefined'&&data&&!saved&&typeof editSignature==='function'&&editSignature()!==baseline)||confirm('Discard unsaved changes to this entry?');}
+function lrOpen(entry){if(busy)return;if(!lrUnsavedOk())return;const i=queue.findIndex(q=>lrKey(q)===lrKey(entry));if(i<0)return;queueIndex=i;navigate(0);}
+function lrSwitch(tab){
+ if(typeof busy!=='undefined'&&busy)return;if(lrStarted&&!lrUnsavedOk())return;
+ lrSettings.tab=tab;lrSave();const items=(lrQueues&&lrQueues[tab])||[];lrRenderTabs();
+ if(!items.length){document.getElementById('lr-dialog').hidden=true;document.getElementById('lr-empty').hidden=false;document.getElementById('lr-empty').textContent='Nothing here.';if(typeof queue!=='undefined'){queue.splice(0,queue.length);lrRenderList();}return;}
+ document.getElementById('lr-dialog').hidden=false;document.getElementById('lr-empty').hidden=true;
+ const lastKey=lrSettings.last[tab];const start=Math.max(0,items.findIndex(q=>lrKey(q)===lastKey));
+ if(!lrStarted){window.REVIEW_CONTEXT=Object.assign({queue:items.slice()},items[start]);lrStartDialog();return;}
+ queue.splice(0,queue.length,...items);queueIndex=start;navigate(0);
+}
+function lrPrefetchNext(){
+ if(typeof queue==='undefined')return;const next=queue[queueIndex+1];if(!next)return;const key=lrKey(next);
+ if(lrPrefetch.has(key)||lrDone.has(key))return;const p=lrCall('get',[next]);p.catch(()=>lrPrefetch.delete(key));lrPrefetch.set(key,p);
+ // Warm the browser cache for the next item's screenshots too.
+ p.then(d=>(d.sources||[]).forEach(s=>{if(s.label){const im=new Image();im.src=localFileUrl(s.label);}})).catch(()=>{});
+}
+function lrStartDialog(){
+ lrStarted=true;const s=document.createElement('script');s.textContent=document.getElementById('lr-dialog-script').textContent;document.body.append(s);
+ // Hooks around the Sheet dialog's own functions.
+ const baseRender=render;render=function(d){baseRender(d);lrSettings.last[lrSettings.tab]=lrKey(queue[queueIndex]);lrSave();lrRenderList();lrPrefetchNext();};
+ const baseSave=saveCurrent;saveCurrent=function(advance){lrOptimistic=!!advance;baseSave(advance);lrOptimistic=false;};
+ lrRenderList();
+}
+async function lrLoad(){
+ if(!/^https:\/\/script\.google\.com\/macros\/s\/[A-Za-z0-9_-]+\/exec$/.test(lrSettings.url)||lrSettings.token.length<32){lrShowSettings(lrSettings.url?'Check the endpoint URL and token.':'');return;}
+ document.getElementById('lr-loaded').textContent='Loading list…';
+ try{const r=await lrCall('list',[]);lrQueues=r.queues;lrSheetUrl=r.sheetUrl||'';lrLoadedAt=new Date(r.checked_at).toLocaleTimeString();}
+ catch(e){lrShowSettings('Could not load the list: '+e.message);return;}
+ lrRenderTabs();
+ if(!lrStarted)lrSwitch(lrSettings.tab);
+ else{const items=lrQueues[lrSettings.tab]||[],current=queue[queueIndex];queue.splice(0,queue.length,...items);const i=current?items.findIndex(q=>lrKey(q)===lrKey(current)):-1;if(i>=0)queueIndex=i;else{queueIndex=0;if(items.length)navigate(0);}lrRenderList();updateNavigation();}
+}
+document.getElementById('lr-refresh').onclick=()=>lrLoad();
+document.getElementById('lr-reload').onclick=()=>{if(typeof queue!=='undefined'&&queue.length&&lrUnsavedOk()){lrPrefetch.delete(lrKey(queue[queueIndex]));navigate(0);}};
+document.getElementById('lr-settings-btn').onclick=()=>lrShowSettings('');
+document.getElementById('lr-sheet').onclick=()=>{if(lrSheetUrl)window.open(lrSheetUrl,'_blank');};
+document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key==='Enter'&&typeof saveCurrent==='function'){e.preventDefault();saveCurrent(queueIndex<queue.length-1?1:0);}});
+lrLoad();
 </script>
 </body>
 </html>

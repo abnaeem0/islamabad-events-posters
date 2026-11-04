@@ -16,18 +16,24 @@ assert.equal(h.networkCalls(),0);console.log('PASS: authentication, web-app shee
 run("withDataLock_(()=>storeCrop_('public-poster',[0,0,1000,1000],'skip','Visual v2: no useful visual'))");
 const noImage=request('manifest');assert.equal(noImage.items.length,1);assert.equal(noImage.items[0].images.length,0);
 
-// Local review page: read-only list of Event Review rows with screenshot file names.
-const before=JSON.stringify(run("vrRows_(PIPE.REVIEW)"));
+// Local review page: its own token, list of work, open and save through the same code as the Sheet dialog.
 h.props.set('LOCAL_REVIEW_TOKEN','review-'.repeat(6));const reviewToken=h.props.get('LOCAL_REVIEW_TOKEN');
-assert.equal(request('review_list',{},'wrong').ok,false);
-assert.equal(request('review_list').ok,false,'GitHub token must not read the review list');
+const review=(fn,args=[],token=reviewToken)=>request('review',{fn,args},token);
+assert.equal(review('list',[],'wrong').ok,false);
+assert.equal(review('list',[],h.props.get('GITHUB_EXPORT_TOKEN')).ok,false,'GitHub token must not use the review page calls');
 assert.equal(request('manifest',{},reviewToken).ok,false,'review token must not export');
 assert.equal(request('file',image,reviewToken).ok,false,'review token must not download files');
-const list=request('review_list',{},reviewToken);assert(list.ok,list.error);assert(Array.isArray(list.items));
-list.items.forEach(x=>{assert(Array.isArray(x.incoming_files));x.incoming_files.forEach(f=>assert(f.fileId));});
-assert.equal(JSON.stringify(run("vrRows_(PIPE.REVIEW)")),before);
-const raw=run("vrRows_(PIPE.RAW)[0]");const files=run("localReviewFiles_(vrRows_(PIPE.RAW)[0])");assert.equal(files[0].fileId,String(raw.original_image_file_id));assert.equal(files[0].name,String(raw.original_filename));
-console.log('PASS: review_list needs its own token, the tokens do not overlap, changes nothing, and returns screenshot file names.');
-run("(function(){const sh=SpreadsheetApp.openById(getSettings_().spreadsheetId).getSheetByName(PIPE.REVIEW);const src=vrRows_(PIPE.RAW)[0];const row=PIPE.REVIEW_HEADERS.map(h=>({priority:'1',issue:'Possible duplicate',incoming_title:'Published event',source_id:src.id,group_id:src.group_id,suggested_group_id:src.group_id})[h]||'');sh.appendRow(row);})()");
-const one=request('review_list',{},reviewToken);assert(one.ok,one.error);assert.equal(one.items.length,1);assert.equal(one.items[0].issue,'Possible duplicate');assert.equal(one.items[0].details.title,'Published event');assert.equal(one.items[0].incoming_files.length,1);assert.equal(one.items[0].existing_files.length,0);
-console.log('PASS: review_list maps a review row to its screenshots.');
+assert.equal(review('nope').ok,false,'only listed calls are allowed');
+const before=JSON.stringify(run("vrRows_(PIPE.REVIEW)"));
+const list=review('list');assert(list.ok,list.error);assert(list.result.queues.upcoming.length>=1);assert.equal(JSON.stringify(run("vrRows_(PIPE.REVIEW)")),before,'listing changes nothing');
+// Open and save an event from the upcoming list, the way the page does it.
+const ctx=list.result.queues.upcoming[0];const opened=review('get',[ctx]);assert(opened.ok,opened.error);assert.equal(opened.result.existing.title,'Published event');
+const fields=Object.assign({},opened.result.existing,{title:'Published event (checked)'});
+h.props.delete&&h.props.delete('PIPELINE_DIRTY');
+const saved=review('save',[{action:'edit',fields,mode:ctx.mode,sourceId:opened.result.sourceId,groupId:opened.result.groupId,suggestedGroupId:'',posterChoice:'existing',placeType:'uncategorized',researchSelections:[],applySharedVenue:false,sharedVenueIds:[],reviewVersion:opened.result.reviewVersion,confirmVenue:false,approveAsIs:false,publication:{area:'',expiry_mode:'event',valid_until:'',location_note:''}}]);
+assert(saved.ok,saved.error);assert(saved.result.ok);
+assert.equal(run("vrRows_(PIPE.UPCOMING)[0].title"),'Published event (checked)');
+assert.equal(h.props.get('PIPELINE_DIRTY'),'1','page saves leave the rebuild to the next inbox run');
+const stale=review('save',[{action:'edit',fields,mode:ctx.mode,sourceId:opened.result.sourceId,groupId:opened.result.groupId,reviewVersion:opened.result.reviewVersion,publication:{}}]);
+assert.equal(stale.ok,false,'a save based on an out-of-date view is refused');
+console.log('PASS: review page token is separate, lists work, opens and saves through the Sheet dialog code, defers the rebuild, refuses stale saves.');

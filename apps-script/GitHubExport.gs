@@ -25,13 +25,14 @@ function githubManifest_(){
 }
 function doPost(e){
  try{
-  const text=e&&e.postData&&e.postData.contents||'';if(text.length>20000)throw new Error('Request too large');const body=JSON.parse(text);
-  // The local review page has its own token (LOCAL_REVIEW_TOKEN) that can only read the review list.
-  // The GitHub token cannot read the review list, and the review token cannot export or download files.
-  if(body.action==='review_list'){
+  const text=e&&e.postData&&e.postData.contents||'';if(text.length>200000)throw new Error('Request too large');const body=JSON.parse(text);
+  // The local review page has its own token (LOCAL_REVIEW_TOKEN). It can read and save review decisions
+  // (the same things the Sheet dialog does), but cannot export the site or download arbitrary files.
+  // The GitHub token cannot use the review page's calls.
+  if(body.action==='review'){
    const reviewToken=PropertiesService.getScriptProperties().getProperty('LOCAL_REVIEW_TOKEN');
    if(!reviewToken||reviewToken.length<32||!githubEqual_(body.token,reviewToken))throw new Error('Unauthorized');
-   return ContentService.createTextOutput(JSON.stringify(localReviewList_())).setMimeType(ContentService.MimeType.JSON);
+   return ContentService.createTextOutput(JSON.stringify(localReviewCall_(body))).setMimeType(ContentService.MimeType.JSON);
   }
   const token=PropertiesService.getScriptProperties().getProperty('GITHUB_EXPORT_TOKEN');
   if(!token||token.length<32||!githubEqual_(body.token,token))throw new Error('Unauthorized');

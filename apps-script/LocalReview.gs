@@ -1,34 +1,47 @@
 /**
- * Read-only review list for the local review page (review/index.html).
- * Reached through doPost action 'review_list' with LOCAL_REVIEW_TOKEN (not the GitHub export token).
- * No lock: it only reads, so it never blocks inbox runs, saves or the site build.
+ * Server side of the local review page (review/index.html).
+ * Reached through doPost action 'review' with LOCAL_REVIEW_TOKEN (not the GitHub export token).
+ * Every decision goes through the same functions as the Sheet dialog (ReviewUI.gs), so the
+ * page and the Sheet behave the same. The only difference: saves from the page skip the slow
+ * rebuild of the other tabs and leave it to the next inbox run (within about 5 minutes).
  */
-function localReviewFiles_(sourceRow){
- if(!sourceRow)return [];
- const files=[{name:String(sourceRow.original_filename||''),fileId:String(sourceRow.original_image_file_id||''),link:String(sourceRow.original_image_url||'')}];
- (companionClues_(sourceRow).source_images||[]).forEach(x=>files.push({name:String(x.label||''),fileId:String(x.fileId||''),link:String(x.link||'')}));
- const seen=new Set();
- return files.filter(f=>f.fileId&&!seen.has(f.fileId)&&seen.add(f.fileId));
+const LOCAL_REVIEW_CALLS={
+ list:()=>localReviewQueues_(),
+ get:context=>getVisualReviewData(context),
+ save:payload=>saveVisualDecision(Object.assign({},payload,{deferRefresh:true})),
+ research:payload=>researchVisualDetails(payload),
+ venue:payload=>researchVenueLocation(payload),
+ collate:payload=>collateVisualDescriptions(payload),
+ publishing:payload=>checkReviewPublishing(payload),
+ // Fallback only, when a screenshot is not on the computer yet. Limited to images linked to that source.
+ poster:(sourceId,fileId)=>getVisualPoster(sourceId,fileId,true,false)
+};
+function localReviewCall_(body){
+ const fn=LOCAL_REVIEW_CALLS[String(body.fn||'')];
+ if(!fn)throw new Error('Unknown review call');
+ const args=Array.isArray(body.args)?body.args:[];
+ return {ok:true,result:fn.apply(null,args)};
 }
-function localReviewList_(){
- const sources=vrRows_(PIPE.RAW),byId=new Map(sources.map(r=>[String(r.id),r]));
- const groupFiles=(groupId,skipId)=>{const out=[];if(!groupId)return out;sources.forEach(r=>{if(String(r.group_id)===String(groupId)&&String(r.id)!==String(skipId)&&r.status!==CONFIG.STATUS.ERROR)out.push(...localReviewFiles_(r));});const seen=new Set();return out.filter(f=>!seen.has(f.fileId)&&seen.add(f.fileId));};
+/** The work lists shown in the page: the same rows the Sheet dialog would step through. No lock: read only. */
+function localReviewQueues_(){
+ const safeRows=tab=>{try{return vrRows_(tab);}catch(e){return [];}};
  const text=(row,key)=>vrString_(row&&row[key],key);
- const items=vrRows_(PIPE.REVIEW).filter(r=>r.source_id||r.group_id).map(r=>{
-  const source=byId.get(String(r.source_id))||null,target=String(r.suggested_group_id||'');
-  const details={};['title','start_date','end_date','start_time','end_time','venue','address','organizer','price','contact','registration_url','description','source_account'].forEach(k=>details[k]=text(source,k));
-  return {
-   row:r._row,priority:text(r,'priority'),issue:text(r,'issue'),differences:text(r,'differences'),
-   audit:isPublicationReviewRow_(r),
-   source_id:String(r.source_id||''),group_id:String(r.group_id||''),suggested_group_id:target,
-   existing:{title:text(r,'existing_title'),date:text(r,'existing_date'),time:text(r,'existing_time'),venue:text(r,'existing_venue')},
-   incoming:{title:text(r,'incoming_title'),date:text(r,'incoming_date'),time:text(r,'incoming_time'),venue:text(r,'incoming_venue')},
-   details:details,confidence:text(source,'confidence'),uncertain_fields:text(source,'uncertain_fields'),notes:text(source,'extraction_notes'),
-   incoming_files:localReviewFiles_(source),
-   existing_files:target?groupFiles(target,r.source_id):[]
-  };
- });
- return {ok:true,checked_at:new Date().toISOString(),items:items};
+ const entry=(r,mode,extra)=>Object.assign({mode:mode,sourceId:String(r.source_id||''),groupId:String(r.group_id||''),title:text(r,'title')||'Untitled',date:text(r,'start_date')},extra||{});
+ const review=safeRows(PIPE.REVIEW).filter(r=>r.group_id).map(r=>{
+  const audit=isPublicationReviewRow_(r);
+  return entry(r,audit?(String(r.differences||'').indexOf('place:')===0?'place':'edit'):'review',{
+   title:text(r,'incoming_title')||text(r,'existing_title')||'Untitled',date:text(r,'incoming_date')||text(r,'existing_date'),
+   issue:text(r,'issue'),priority:Number(r.priority)||99,audit:audit});
+ }).sort((a,b)=>a.priority-b.priority);
+ const byDate=(a,b)=>String(a.date).localeCompare(String(b.date));
+ return {ok:true,checked_at:new Date().toISOString(),
+  sheetUrl:SpreadsheetApp.openById(getSettings_().spreadsheetId).getUrl(),
+  queues:{
+   review:review,
+   upcoming:safeRows(PIPE.UPCOMING).filter(r=>r.group_id).map(r=>entry(r,'edit')).sort(byDate),
+   places:safeRows(PIPE.PLACES).filter(r=>r.group_id).map(r=>entry(r,'place',{issue:text(r,'place_type')})),
+   research:safeRows(HOLDING.TAB).filter(r=>r.group_id).map(r=>entry(r,'holding'))
+  }};
 }
 /**
  * Run once from the Apps Script editor (or again to replace a leaked token).
