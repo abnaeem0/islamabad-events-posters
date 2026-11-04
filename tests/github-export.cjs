@@ -18,12 +18,16 @@ const noImage=request('manifest');assert.equal(noImage.items.length,1);assert.eq
 
 // Local review page: read-only list of Event Review rows with screenshot file names.
 const before=JSON.stringify(run("vrRows_(PIPE.REVIEW)"));
+h.props.set('LOCAL_REVIEW_TOKEN','review-'.repeat(6));const reviewToken=h.props.get('LOCAL_REVIEW_TOKEN');
 assert.equal(request('review_list',{},'wrong').ok,false);
-const list=request('review_list');assert(list.ok,list.error);assert(Array.isArray(list.items));
+assert.equal(request('review_list').ok,false,'GitHub token must not read the review list');
+assert.equal(request('manifest',{},reviewToken).ok,false,'review token must not export');
+assert.equal(request('file',image,reviewToken).ok,false,'review token must not download files');
+const list=request('review_list',{},reviewToken);assert(list.ok,list.error);assert(Array.isArray(list.items));
 list.items.forEach(x=>{assert(Array.isArray(x.incoming_files));x.incoming_files.forEach(f=>assert(f.fileId));});
 assert.equal(JSON.stringify(run("vrRows_(PIPE.REVIEW)")),before);
 const raw=run("vrRows_(PIPE.RAW)[0]");const files=run("localReviewFiles_(vrRows_(PIPE.RAW)[0])");assert.equal(files[0].fileId,String(raw.original_image_file_id));assert.equal(files[0].name,String(raw.original_filename));
-console.log('PASS: review_list needs the token, changes nothing, and returns screenshot file names.');
+console.log('PASS: review_list needs its own token, the tokens do not overlap, changes nothing, and returns screenshot file names.');
 run("(function(){const sh=SpreadsheetApp.openById(getSettings_().spreadsheetId).getSheetByName(PIPE.REVIEW);const src=vrRows_(PIPE.RAW)[0];const row=PIPE.REVIEW_HEADERS.map(h=>({priority:'1',issue:'Possible duplicate',incoming_title:'Published event',source_id:src.id,group_id:src.group_id,suggested_group_id:src.group_id})[h]||'');sh.appendRow(row);})()");
-const one=request('review_list');assert(one.ok,one.error);assert.equal(one.items.length,1);assert.equal(one.items[0].issue,'Possible duplicate');assert.equal(one.items[0].details.title,'Published event');assert.equal(one.items[0].incoming_files.length,1);assert.equal(one.items[0].existing_files.length,0);
+const one=request('review_list',{},reviewToken);assert(one.ok,one.error);assert.equal(one.items.length,1);assert.equal(one.items[0].issue,'Possible duplicate');assert.equal(one.items[0].details.title,'Published event');assert.equal(one.items[0].incoming_files.length,1);assert.equal(one.items[0].existing_files.length,0);
 console.log('PASS: review_list maps a review row to its screenshots.');

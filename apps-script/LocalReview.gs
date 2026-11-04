@@ -1,6 +1,6 @@
 /**
  * Read-only review list for the local review page (review/index.html).
- * Reached through doPost action 'review_list' with the export token.
+ * Reached through doPost action 'review_list' with LOCAL_REVIEW_TOKEN (not the GitHub export token).
  * No lock: it only reads, so it never blocks inbox runs, saves or the site build.
  */
 function localReviewFiles_(sourceRow){
@@ -29,4 +29,13 @@ function localReviewList_(){
   };
  });
  return {ok:true,checked_at:new Date().toISOString(),items:items};
+}
+/**
+ * Run once from the Apps Script editor (or again to replace a leaked token).
+ * Makes a new random token, saves it in Script Properties and shows it once to copy into the review page.
+ */
+function setupLocalReviewToken(){
+ const token=(Utilities.getUuid()+Utilities.getUuid()).replace(/-/g,'');
+ PropertiesService.getScriptProperties().setProperty('LOCAL_REVIEW_TOKEN',token);
+ SpreadsheetApp.getUi().alert('Local review token','Copy this into the review page Settings. Any older review token stops working now.\n\n'+token,SpreadsheetApp.getUi().ButtonSet.OK);
 }

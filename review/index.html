@@ -8,7 +8,8 @@
  Local review page (step 1: view only). Open this file by double-clicking it on the office computer.
  Screenshots load straight from the Google Drive for desktop folder, so they appear instantly.
  The list of items comes from the Apps Script endpoint (action review_list), read only.
- The endpoint URL and token are typed once and kept in this browser only. Nothing secret is in this file.
+ The endpoint URL and review token are typed once and kept in this browser only. Nothing secret is in this file.
+ The review token can only read the review list; it cannot export listings or download Drive files.
 -->
 <style>
 :root{--bg:#f6f7f9;--card:#fff;--ink:#1d2430;--muted:#5d6878;--line:#dde2e8;--accent:#1f6feb;--warn:#b54708;--warnbg:#fff4e5}
@@ -74,7 +75,7 @@ function showSettings(message){
   el('label',{for:'url',text:'Endpoint URL'}),el('input',{id:'url',value:settings.url,placeholder:'https://script.google.com/macros/s/…/exec'}),
   el('p',{text:'Apps Script → Deploy → Manage deployments → Web app URL (the same one GitHub uses).'}),
   el('label',{for:'token',text:'Token'}),el('input',{id:'token',type:'password',value:settings.token}),
-  el('p',{text:'Apps Script → Project Settings → Script Properties → GITHUB_EXPORT_TOKEN.'}),
+  el('p',{text:'The review token: run setupLocalReviewToken once in the Apps Script editor, or see Project Settings → Script Properties → LOCAL_REVIEW_TOKEN. Not the GitHub token.'}),
   el('label',{for:'folder',text:'Screenshot folder'}),el('input',{id:'folder',value:settings.folder}),
   el('div',{style:'margin-top:16px'},el('button',{class:'primary',type:'submit',text:'Save and load'})),
   message?el('div',{class:'err',text:message}):null);
