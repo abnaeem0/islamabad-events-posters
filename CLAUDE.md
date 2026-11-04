@@ -63,12 +63,13 @@ Flow: phone screenshot -> Google Drive inbox -> Apps Script + Gemini -> Google S
 **Review and bulk actions**
 - `apps-script/ReviewUI.gs` + `ReviewDialog.html`: the review popup and `saveVisualDecision`. Slow today: `vrImage_` sends full base64 images, and every save re-reads tabs and runs `refreshEventViews_`.
 - `apps-script/BulkActions.gs` + `BulkDialog.html`: move, copy, return and set venue for many entries.
+- `review/index.html`: the local review page, opened from disk on my office computer. Reads the list from `apps-script/LocalReview.gs` (endpoint action `review_list`) and loads screenshots from the Google Drive for desktop folder. Endpoint URL and token are typed into the page and kept in that browser only.
 - `apps-script/MenuActions.gs`: menu shortcuts, Trash and Trash restore.
 - `apps-script/ResearchHolding.gs`: the private "Research" parking tab.
 - `apps-script/ShareDialog.html`: crop editor and caption tool.
 
 **Publishing**
-- `apps-script/GitHubExport.gs`: authenticated `doPost` endpoint the GitHub Action calls (manifest, image files, ack). Serves only JPEG/PNG up to 6 MB.
+- `apps-script/GitHubExport.gs`: authenticated `doPost` endpoint the GitHub Action calls (manifest, image files, ack), plus `review_list` for the local review page. Serves only JPEG/PNG up to 6 MB.
 - `apps-script/PublicationAudit.gs`: compares the live site with the Sheet and flags stuck listings.
 - `apps-script/PublicOutbox.gs`: removal queue for the old non-GitHub publishing path.
 - `apps-script/SetupGitHub.gs`: one-time token and Pages URL setup.

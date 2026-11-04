@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Local Review</title>
+<!--
+ Local review page (step 1: view only). Open this file by double-clicking it on the office computer.
+ Screenshots load straight from the Google Drive for desktop folder, so they appear instantly.
+ The list of items comes from the Apps Script endpoint (action review_list), read only.
+ The endpoint URL and token are typed once and kept in this browser only. Nothing secret is in this file.
+-->
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--ink:#1d2430;--muted:#5d6878;--line:#dde2e8;--accent:#1f6feb;--warn:#b54708;--warnbg:#fff4e5}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 system-ui,-apple-system,"Segoe UI",Arial,sans-serif}
+header{display:flex;gap:12px;align-items:center;padding:10px 16px;background:var(--card);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:2}
+header h1{font-size:16px;margin:0}
+header .count{color:var(--muted)}
+header .spacer{flex:1}
+button{font:inherit;padding:6px 12px;border:1px solid var(--line);border-radius:6px;background:var(--card);cursor:pointer}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+button:disabled{opacity:.5;cursor:default}
+main{display:grid;grid-template-columns:260px 1fr;min-height:calc(100vh - 50px)}
+#list{border-right:1px solid var(--line);overflow:auto;max-height:calc(100vh - 50px);background:var(--card)}
+#list button{display:block;width:100%;text-align:left;border:0;border-bottom:1px solid var(--line);border-radius:0;padding:8px 12px}
+#list button.on{background:#e8f0fe}
+#list .t{font-weight:600;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#list .i{color:var(--muted);font-size:12px}
+#item{padding:16px;overflow:auto;max-height:calc(100vh - 50px)}
+.issue{background:var(--warnbg);color:var(--warn);padding:8px 12px;border-radius:6px;margin-bottom:12px;font-weight:600}
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.col{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:12px;min-width:0}
+.col h2{font-size:13px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin:0 0 8px}
+dl{display:grid;grid-template-columns:110px 1fr;gap:4px 10px;margin:0 0 12px}
+dt{color:var(--muted)}dd{margin:0;word-break:break-word}
+.shots{display:flex;gap:8px;overflow-x:auto;padding-bottom:4px}
+.shot{flex:0 0 auto}
+.shot img{height:62vh;max-width:none;border:1px solid var(--line);border-radius:6px;display:block;background:#eee}
+.shot .name{font-size:11px;color:var(--muted);max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.missing{height:62vh;width:220px;border:1px dashed var(--line);border-radius:6px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:12px;color:var(--muted)}
+.empty{color:var(--muted);padding:40px;text-align:center}
+#settings{max-width:560px;margin:40px auto;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:20px}
+#settings label{display:block;margin:12px 0 4px;font-weight:600}
+#settings input{width:100%;padding:8px;font:inherit;border:1px solid var(--line);border-radius:6px}
+#settings p{color:var(--muted);margin:4px 0}
+.err{color:#b42318;margin-top:10px;white-space:pre-wrap}
+.keys{color:var(--muted);font-size:12px}
+</style>
+</head>
+<body>
+<header>
+ <h1>Review</h1><span class="count" id="count"></span><span class="spacer"></span>
+ <span class="keys">← → to move</span>
+ <button id="prev">←</button><button id="next">→</button>
+ <button id="refresh" class="primary">Refresh</button>
+ <button id="openSettings">Settings</button>
+</header>
+<div id="app"></div>
+<script>
+const KEY='localReview.v1';
+const store={get(){try{return JSON.parse(localStorage.getItem(KEY)||'{}')}catch(e){return {}}},set(v){try{localStorage.setItem(KEY,JSON.stringify(v))}catch(e){}}};
+let settings=Object.assign({folder:'G:\\My Drive\\Islamabad Events Inbox',url:'',token:''},store.get());
+let items=[],index=0,loadedAt='';
+const app=document.getElementById('app');
+const el=(tag,attrs={},...kids)=>{const n=document.createElement(tag);for(const[k,v]of Object.entries(attrs)){if(k==='text')n.textContent=v;else if(k.startsWith('on'))n.addEventListener(k.slice(2),v);else n.setAttribute(k,v);}kids.flat(Infinity).forEach(k=>k!=null&&n.append(k));return n;};
+function fileUrl(name){const base=settings.folder.replace(/\\/g,'/').replace(/\/$/,'');return 'file:///'+base.split('/').map(encodeURIComponent).join('/').replace(/^([A-Za-z])%3A/,'$1:')+'/'+encodeURIComponent(name);}
+function save(){store.set(settings);}
+
+function showSettings(message){
+ const f=el('form',{id:'settings'},
+  el('h2',{text:'Settings'}),
+  el('p',{text:'Typed once and kept only in this browser on this computer.'}),
+  el('label',{for:'url',text:'Endpoint URL'}),el('input',{id:'url',value:settings.url,placeholder:'https://script.google.com/macros/s/…/exec'}),
+  el('p',{text:'Apps Script → Deploy → Manage deployments → Web app URL (the same one GitHub uses).'}),
+  el('label',{for:'token',text:'Token'}),el('input',{id:'token',type:'password',value:settings.token}),
+  el('p',{text:'Apps Script → Project Settings → Script Properties → GITHUB_EXPORT_TOKEN.'}),
+  el('label',{for:'folder',text:'Screenshot folder'}),el('input',{id:'folder',value:settings.folder}),
+  el('div',{style:'margin-top:16px'},el('button',{class:'primary',type:'submit',text:'Save and load'})),
+  message?el('div',{class:'err',text:message}):null);
+ f.addEventListener('submit',e=>{e.preventDefault();settings.url=f.url.value.trim();settings.token=f.token.value.trim();settings.folder=f.folder.value.trim()||settings.folder;save();load();});
+ app.replaceChildren(f);
+}
+
+async function load(){
+ if(!/^https:\/\/script\.google\.com\/macros\/s\/[A-Za-z0-9_-]+\/exec$/.test(settings.url)||settings.token.length<32){showSettings(settings.url?'Check the endpoint URL and token.':'');return;}
+ document.getElementById('refresh').disabled=true;document.getElementById('count').textContent='Loading…';
+ try{
+  // text/plain keeps this a simple request, so the browser does not need a CORS preflight.
+  const res=await fetch(settings.url,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({action:'review_list',token:settings.token})});
+  const data=await res.json();
+  if(!data.ok)throw new Error(data.error||'The Sheet refused the request.');
+  const keep=items[index]&&items[index].source_id;
+  items=data.items.filter(x=>!x.audit).sort((a,b)=>(Number(a.priority)||99)-(Number(b.priority)||99));
+  loadedAt=new Date(data.checked_at).toLocaleTimeString();
+  const saved=keep||store.get().last;index=Math.max(0,items.findIndex(x=>x.source_id===saved));
+  render();
+ }catch(e){
+  const hint=/Unknown export action/.test(e.message)?'\n\nThe Apps Script web app is still on an older version. Publish a new version: Deploy → Manage deployments → Edit → Version: New version → Deploy.':'';
+  showSettings('Could not load the list: '+e.message+hint);
+ }finally{document.getElementById('refresh').disabled=false;}
+}
+
+function shots(files){
+ if(!files.length)return el('div',{class:'empty',text:'No screenshots linked.'});
+ return el('div',{class:'shots'},files.map(f=>{
+  const box=el('div',{class:'shot'});
+  const img=el('img',{src:fileUrl(f.name),alt:f.name,loading:'lazy'});
+  img.addEventListener('error',()=>img.replaceWith(el('div',{class:'missing'},el('div',{text:'Not on this computer yet.'}),f.link?el('a',{href:f.link,target:'_blank',text:'Open in Drive'}):null)));
+  box.append(img,el('div',{class:'name',text:f.name,title:f.name}));return box;
+ }));
+}
+function facts(rows){return el('dl',{},rows.filter(([,v])=>v).map(([k,v])=>[el('dt',{text:k}),el('dd',{text:v})]));}
+
+function render(){
+ document.getElementById('count').textContent=items.length?(index+1)+' of '+items.length+' · loaded '+loadedAt:'Nothing to review · loaded '+loadedAt;
+ if(!items.length){app.replaceChildren(el('div',{class:'empty',text:'Nothing waiting for review.'}));return;}
+ const x=items[index];settings.last=x.source_id;save();
+ const list=el('nav',{id:'list'},items.map((it,i)=>el('button',{class:i===index?'on':'',onclick:()=>{index=i;render();}},el('span',{class:'t',text:it.incoming.title||it.details.title||'Untitled'}),el('span',{class:'i',text:it.issue}))));
+ const d=x.details;
+ const incoming=el('section',{class:'col'},el('h2',{text:'New screenshot'}),
+  facts([['Title',x.incoming.title||d.title],['Date',[d.start_date,d.end_date].filter(Boolean).join(' to ')||x.incoming.date],['Time',[d.start_time,d.end_time].filter(Boolean).join('–')||x.incoming.time],['Venue',d.venue||x.incoming.venue],['Address',d.address],['Organizer',d.organizer],['Account',d.source_account],['Price',d.price],['Contact',d.contact],['Link',d.registration_url],['Confidence',x.confidence],['Unsure about',x.uncertain_fields],['Notes',x.notes],['Description',d.description]]),
+  shots(x.incoming_files));
+ const hasExisting=x.existing_files.length||x.existing.title;
+ const existing=hasExisting?el('section',{class:'col'},el('h2',{text:'Already in the Sheet'}),
+  facts([['Title',x.existing.title],['Date',x.existing.date],['Time',x.existing.time],['Venue',x.existing.venue]]),shots(x.existing_files)):null;
+ const body=el('div',{id:'item'},el('div',{class:'issue',text:x.issue||'Review'}),x.differences?el('p',{text:x.differences}):null,el('div',{class:'cols',style:hasExisting?'':'grid-template-columns:1fr'},incoming,existing));
+ app.replaceChildren(el('main',{},list,body));
+ const on=list.querySelector('.on');if(on)on.scrollIntoView({block:'nearest'});
+}
+function move(step){if(!items.length)return;index=Math.min(items.length-1,Math.max(0,index+step));render();}
+document.getElementById('prev').onclick=()=>move(-1);
+document.getElementById('next').onclick=()=>move(1);
+document.getElementById('refresh').onclick=load;
+document.getElementById('openSettings').onclick=()=>showSettings('');
+document.addEventListener('keydown',e=>{if(e.target.tagName==='INPUT')return;if(e.key==='ArrowRight'||e.key==='j')move(1);if(e.key==='ArrowLeft'||e.key==='k')move(-1);});
+load();
+</script>
+</body>
+</html>

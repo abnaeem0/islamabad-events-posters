@@ -38,6 +38,7 @@ function doPost(e){
   }else if(body.action==='ack'){
    const current=githubManifest_();if(current.version!==body.version)throw new Error('Sheet changed since publication; next run will refresh it.');
    PropertiesService.getScriptProperties().setProperty('PUBLIC_SYNC_STATUS',JSON.stringify({checked_at:new Date().toISOString(),pending:current.held,needs_crop:current.held,published_this_run:current.items.length,target:'github'}));result={ok:true};
+  }else if(body.action==='review_list'){result=localReviewList_();
   }else throw new Error('Unknown export action');
   return ContentService.createTextOutput(JSON.stringify(result)).setMimeType(ContentService.MimeType.JSON);
  }catch(error){return ContentService.createTextOutput(JSON.stringify({ok:false,error:String(error.message||error)})).setMimeType(ContentService.MimeType.JSON);}
