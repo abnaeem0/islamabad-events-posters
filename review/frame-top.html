@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Local Review</title>
+<!--
+ Local review page. Open this file by double-clicking it on the office computer.
+ It does everything the Sheet's review dialog does, using the same Apps Script code (apps-script/LocalReview.gs),
+ but loads screenshots straight from the Google Drive for desktop folder, prefetches the next item,
+ and saves in the background on "Save and next".
+ The endpoint URL and review token are typed once and kept in this browser only. Nothing secret is in this file.
+ GENERATED: review/index.html is built by scripts/build-review.mjs from apps-script/ReviewDialog.html (the same
+ dialog the Sheet uses) plus review/frame-top.html and review/frame.js. Edit those, then run: npm run build:review
+-->
+<style>
+/* Page frame */
+#lr-bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:8px 16px;background:#fff;border-bottom:1px solid #dde2e8;position:sticky;top:0;z-index:50;font:14px system-ui,-apple-system,"Segoe UI",Arial,sans-serif}
+#lr-bar .tab{border:1px solid #dde2e8;background:#fff;border-radius:16px;padding:5px 12px;cursor:pointer}
+#lr-bar .tab.on{background:#145c97;border-color:#145c97;color:#fff}
+#lr-bar .spacer{flex:1}#lr-bar .muted{color:#65717f;font-size:12px}
+#lr-bar button.plain{border:1px solid #dde2e8;background:#fff;border-radius:6px;padding:5px 10px;cursor:pointer}
+#lr-saving{color:#145c97;font-size:12px}
+#lr-failures{background:#fef3f2;color:#b42318;border-bottom:1px solid #fecdca;padding:8px 16px;font:13px system-ui,Arial,sans-serif}
+#lr-failures button{margin-left:8px}
+#lr-main{display:grid;grid-template-columns:250px 1fr;align-items:start}
+#lr-list{position:sticky;top:46px;max-height:calc(100vh - 46px);overflow:auto;border-right:1px solid #dde2e8;background:#fff;font:13px system-ui,Arial,sans-serif}
+#lr-list button{display:block;width:100%;text-align:left;border:0;border-bottom:1px solid #eef0f3;background:#fff;padding:7px 10px;cursor:pointer}
+#lr-list button.on{background:#e8f0fe}#lr-list button.done{opacity:.45}#lr-list button.done .t::before{content:"✓ "}
+#lr-list .t{display:block;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}#lr-list .i{color:#65717f;font-size:11px}
+#lr-dialog{min-width:0}
+#lr-settings{max-width:560px;margin:40px auto;background:#fff;border:1px solid #dde2e8;border-radius:8px;padding:20px;font:14px system-ui,Arial,sans-serif}
+#lr-settings label{display:block;margin:12px 0 4px;font-weight:600}#lr-settings input{width:100%;padding:8px;font:inherit;border:1px solid #ccc;border-radius:6px}
+#lr-settings p{color:#65717f;margin:4px 0}.lr-err{color:#b42318;margin-top:10px;white-space:pre-wrap}
+.lr-empty{padding:40px;color:#65717f;text-align:center;font:14px system-ui,Arial,sans-serif}
+/* Slides of this post */
+#lr-slides{margin-top:14px;background:#fff;border:1px solid #ddd;border-radius:8px;padding:10px}
+#lr-slides .row{display:flex;gap:10px;overflow-x:auto;padding:6px 0}
+#lr-slides .slide{flex:0 0 auto;width:150px;font-size:11px;color:#3b4652}
+#lr-slides .slide img{width:150px;height:260px;object-fit:cover;object-position:top;border:2px solid #dde2e8;border-radius:6px;display:block;cursor:zoom-in;background:#eee}
+#lr-slides .slide.main img{border-color:#145c97}
+#lr-slides .slide.linked img{border-color:#2e9d5b}
+#lr-slides .slide label{display:flex;gap:4px;align-items:flex-start;margin-top:4px}
+#lr-slides .note{color:#65717f;font-size:12px}

@@ -45,7 +45,7 @@ function doPost(e){
    result={ok:true,mime:blob.getContentType(),data:Utilities.base64Encode(bytes)};
   }else if(body.action==='ack'){
    const current=githubManifest_();if(current.version!==body.version)throw new Error('Sheet changed since publication; next run will refresh it.');
-   PropertiesService.getScriptProperties().setProperty('PUBLIC_SYNC_STATUS',JSON.stringify({checked_at:new Date().toISOString(),pending:current.held,needs_crop:current.held,published_this_run:current.items.length,target:'github'}));result={ok:true};
+   PropertiesService.getScriptProperties().setProperty('PUBLIC_SYNC_STATUS',JSON.stringify({checked_at:new Date().toISOString(),pending:current.held,needs_crop:current.held,published_this_run:current.items.length-(Array.isArray(body.skipped)?body.skipped.length:0),skipped:(Array.isArray(body.skipped)?body.skipped:[]).slice(0,20).map(x=>String(x).slice(0,300)),target:'github'}));result={ok:true};
   }else throw new Error('Unknown export action');
   return ContentService.createTextOutput(JSON.stringify(result)).setMimeType(ContentService.MimeType.JSON);
  }catch(error){return ContentService.createTextOutput(JSON.stringify({ok:false,error:String(error.message||error)})).setMimeType(ContentService.MimeType.JSON);}

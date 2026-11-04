@@ -90,7 +90,7 @@ export async function buildLatestExport(initial,getImage,verify,output='docs',ma
   }
  }
 }
-async function main(){if(process.argv.includes('--ack')){await request('ack',{version:(await readFile('.export-version','utf8')).trim()});return;}
- const manifest=await request('manifest');const result=await buildLatestExport(manifest,image=>request('file',image),()=>request('manifest'));await writeFile('.export-version',result.version);
+async function main(){if(process.argv.includes('--ack')){let skipped=[];try{skipped=JSON.parse(await readFile('.export-skipped','utf8'));}catch{}await request('ack',{version:(await readFile('.export-version','utf8')).trim(),skipped});return;}
+ const manifest=await request('manifest');const result=await buildLatestExport(manifest,image=>request('file',image),()=>request('manifest'));await writeFile('.export-version',result.version);await writeFile('.export-skipped',JSON.stringify(result.snapshot.skipped||[]));
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href)main().catch(e=>{console.error(e.message);process.exitCode=1;});

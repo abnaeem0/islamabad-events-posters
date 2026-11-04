@@ -37,3 +37,29 @@ assert.equal(h.props.get('PIPELINE_DIRTY'),'1','page saves leave the rebuild to 
 const stale=review('save',[{action:'edit',fields,mode:ctx.mode,sourceId:opened.result.sourceId,groupId:opened.result.groupId,reviewVersion:opened.result.reviewVersion,publication:{}}]);
 assert.equal(stale.ok,false,'a save based on an out-of-date view is refused');
 console.log('PASS: review page token is separate, lists work, opens and saves through the Sheet dialog code, defers the rebuild, refuses stale saves.');
+
+// Slides of one post: link a screenshot with no listing (extra slide) and one with its own listing (moves in), then unlink.
+{
+ const slideFile=h.file('slide-2');const own=h.file('slide-3');
+ context.geminiRequest_=()=>({text:JSON.stringify({events:[{listing_kind:'event',title:'Slide three details',start_date:'2099-12-21',venue:'Somewhere',confidence:'high',uncertain_fields:[]}]})});context.ownFile=own;run('processOneFile_(ownFile)');
+ run("(function(){const r=vrRows_(PIPE.RAW).find(x=>x.original_image_file_id==='slide-3');vrUpdateRow_(PIPE.RAW,r._row,{group_id:'E_'+r.id,match_status:'separate'});})()");
+ const main=run("vrRows_(PIPE.RAW).find(r=>r.original_image_file_id==='public-poster')");
+ const cands=review('slides',[{sourceId:main.id,groupId:main.group_id}]);assert(cands.ok,cands.error);
+ const st=Object.fromEntries(cands.result.candidates.map(c=>[c.fileId,c.state]));
+ assert.equal(st['public-poster'],'main');assert.equal(st['slide-2'],'none');assert.equal(st['slide-3'],'other');
+ const linked=review('link',[{sourceId:main.id,groupId:main.group_id,link:['slide-2','slide-3']}]);assert(linked.ok,linked.error);assert.equal(linked.result.linked,2);
+ assert.equal(run("vrRows_(PIPE.RAW).find(r=>r.original_image_file_id==='slide-3').group_id"),String(main.group_id));
+ assert(run("companionClues_(vrRows_(PIPE.RAW).find(r=>r.original_image_file_id==='public-poster')).source_images.some(x=>x.fileId==='slide-2')"));
+ assert(run("isProcessed_('slide-2')"),'a linked slide is not extracted on its own later');
+ const again=review('slides',[{sourceId:main.id,groupId:main.group_id}]).result.candidates;assert(again.filter(c=>c.state==='linked').length===2);
+ const stale=review('link',[{sourceId:main.id,groupId:'wrong',link:['slide-2']}]);assert.equal(stale.ok,false);
+ const un=review('link',[{sourceId:main.id,groupId:main.group_id,unlink:['slide-2','slide-3']}]);assert(un.ok,un.error);assert.equal(un.result.unlinked,2);
+ assert.notEqual(run("vrRows_(PIPE.RAW).find(r=>r.original_image_file_id==='slide-3').group_id"),String(main.group_id));
+ console.log('PASS: slides of a post can be listed, linked and unlinked, with no Drive calls under the lock.');
+}
+{
+ const m=request('manifest');assert(m.ok,m.error);
+ const ack=request('ack',{version:m.version,skipped:['event:X "Rise and Ride": Crop too small']});assert(ack.ok,ack.error);
+ const status=JSON.parse(h.props.get('PUBLIC_SYNC_STATUS'));assert.deepEqual(status.skipped,['event:X "Rise and Ride": Crop too small']);
+ console.log('PASS: listings left off by the build are recorded for the Sheet publishing status.');
+}

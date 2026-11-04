@@ -10,7 +10,8 @@
  but loads screenshots straight from the Google Drive for desktop folder, prefetches the next item,
  and saves in the background on "Save and next".
  The endpoint URL and review token are typed once and kept in this browser only. Nothing secret is in this file.
- The dialog part below is ported from apps-script/ReviewDialog.html; keep the two in step until the Sheet dialog is retired.
+ GENERATED: review/index.html is built by scripts/build-review.mjs from apps-script/ReviewDialog.html (the same
+ dialog the Sheet uses) plus review/frame-top.html and review/frame.js. Edit those, then run: npm run build:review
 -->
 <style>
 /* Page frame */
@@ -32,7 +33,16 @@
 #lr-settings label{display:block;margin:12px 0 4px;font-weight:600}#lr-settings input{width:100%;padding:8px;font:inherit;border:1px solid #ccc;border-radius:6px}
 #lr-settings p{color:#65717f;margin:4px 0}.lr-err{color:#b42318;margin-top:10px;white-space:pre-wrap}
 .lr-empty{padding:40px;color:#65717f;text-align:center;font:14px system-ui,Arial,sans-serif}
-/* Review dialog (from apps-script/ReviewDialog.html) */
+/* Slides of this post */
+#lr-slides{margin-top:14px;background:#fff;border:1px solid #ddd;border-radius:8px;padding:10px}
+#lr-slides .row{display:flex;gap:10px;overflow-x:auto;padding:6px 0}
+#lr-slides .slide{flex:0 0 auto;width:150px;font-size:11px;color:#3b4652}
+#lr-slides .slide img{width:150px;height:260px;object-fit:cover;object-position:top;border:2px solid #dde2e8;border-radius:6px;display:block;cursor:zoom-in;background:#eee}
+#lr-slides .slide.main img{border-color:#145c97}
+#lr-slides .slide.linked img{border-color:#2e9d5b}
+#lr-slides .slide label{display:flex;gap:4px;align-items:flex-start;margin-top:4px}
+#lr-slides .note{color:#65717f;font-size:12px}
+/* Review dialog (generated from apps-script/ReviewDialog.html) */
 
 *{box-sizing:border-box}[hidden]{display:none!important}body{font-family:Arial,sans-serif;color:#1d2936;margin:0;background:#fafbfc}h2{font-size:19px;margin:0 0 6px}.muted{color:#65717f;font-size:12px}.posters{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px}.poster{background:white;border:1px solid #ddd;padding:10px;border-radius:8px}.poster img{display:block;height:50vh;max-width:100%;margin:auto;object-fit:contain;cursor:zoom-in}.poster a{font-size:12px}.poster-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}.poster-foot{display:flex;gap:12px;align-items:center;margin-top:8px}.fields{margin-top:14px;border:1px solid #ddd;background:white}.field{display:grid;grid-template-columns:130px 1fr 1fr 1.15fr;gap:9px;align-items:center;padding:7px 10px;border-bottom:1px solid #eee}.field.changed{background:#fff9e8}.field label{font-weight:bold;font-size:12px}.field button{font-size:12px;text-align:left;overflow-wrap:anywhere;background:white;border:1px solid #ddd;border-radius:4px;padding:8px;cursor:pointer;white-space:pre-wrap}.field button.chosen{border:2px solid #2670ac;background:#edf6ff}.field input,.field textarea{width:100%;padding:8px;border:1px solid #ccc;border-radius:4px;font:13px Arial}.field textarea{min-height:60px;resize:vertical}.actions{position:sticky;bottom:0;background:#fafbfc;padding:12px 0;border-top:1px solid #ccc;display:flex;align-items:center;gap:8px;flex-wrap:wrap}button{cursor:pointer;padding:7px 10px}button.primary{background:#145c97;color:white;border:0;padding:12px 20px;border-radius:5px}select{padding:10px;max-width:100%}#status{font-size:13px;color:#585858}.loading{height:50vh;display:grid;place-items:center;color:#65717f;font-size:13px}.single .posters{grid-template-columns:1fr}.single .field{grid-template-columns:140px 1fr 1.2fr}.single .incoming-value{display:none}#evidence{margin-top:10px;white-space:pre-wrap}.zoom{position:fixed;inset:0;background:#15212a;z-index:100;display:flex;flex-direction:column}.zoom[hidden]{display:none}.zoom-tools{display:flex;align-items:center;gap:8px;padding:10px;color:white;background:#20313e}.zoom-tools span{margin-right:auto;font-size:13px}.zoom-view{flex:1;overflow:auto;padding:12px;cursor:grab;touch-action:pan-x pan-y}.zoom-view.dragging{cursor:grabbing}.zoom-view img{display:block;max-width:none;max-height:none;margin:auto;user-select:none}.research-box{margin:12px 0;padding:12px;border:1px solid #d6e1eb;border-radius:6px;background:#f1f7fc}.research-item{border-top:1px solid #d6e1eb;padding:10px 0;white-space:pre-wrap}.research-item a{margin-right:12px;font-size:12px}.source-row{padding:7px 0;display:flex;align-items:center;gap:10px}.source-row span{overflow-wrap:anywhere;font-size:12px}.draft textarea{width:100%;min-height:140px;padding:10px}.research-box iframe{width:100%;height:150px;border:0;background:white}.zoom-open:disabled{cursor:default;opacity:.45}#posterChoice{max-width:300px}
 
@@ -63,6 +73,7 @@
 <div class="actions"><button id="previous">← Previous</button><button id="next">Next →</button><span id="position"></span><select id="decision" aria-label="Decision"></select><select id="posterChoice" aria-label="Display poster"><option value="existing">Keep current display poster</option><option value="incoming">Use incoming poster for display</option></select><select id="placeType" aria-label="Place type" hidden><option value="uncategorized">Categorize later</option><option value="activity">Activity / club / gym</option><option value="experience">Experience</option><option value="course">Course / classes</option><option value="recurring_event">Recurring event / market</option><option value="attraction">Attraction</option><option value="day_trip">Day trip</option><option value="restaurant">Restaurant / cafe</option></select><button class="primary" id="save" disabled>Save decision</button><button id="saveNext">Save and next →</button><span id="status" role="status" aria-live="polite"></span></div>
 <div id="unsavedPrompt" class="research-box" hidden><b>Unsaved changes</b><p>Save before moving to another entry?</p><button id="navSave">Save and continue</button><button id="navDiscard">Discard changes</button><button id="navStay">Stay here</button></div><div class="zoom" id="zoom" role="dialog" aria-modal="true" aria-label="Enlarged poster" hidden><div class="zoom-tools"><span id="zoomLabel">Poster — drag to move</span><button id="zoomOut" aria-label="Zoom out">−</button><button id="zoomIn" aria-label="Zoom in">+</button><button id="zoomFit">Fit</button><button id="zoomActual">100%</button><button id="zoomClose">Close (Esc)</button></div><div class="zoom-view" id="zoomView"><img id="zoomImg" alt="Enlarged original poster" draggable="false"></div></div>
 </div></div></div>
+<!-- GENERATED by scripts/build-review.mjs. Do not edit by hand. -->
 <script type="text/plain" id="lr-dialog-script">
 const context=window.REVIEW_CONTEXT;
 let data=null,saved=false,busy=false,baseline="",pendingDirection=0,epoch=0,lastFocus=null,zoomScale=1,drag=null,researchResult=null,researchSelections=new Set();
@@ -72,7 +83,6 @@ const $=id=>document.getElementById(id),imageRequests=new Map();
 $('approveAsIs').onchange=()=>{if($('approveAsIs').checked&&!$('field-start_date')?.value)$('placeType').hidden=false;};
 function el(tag,cls,txt){const n=document.createElement(tag);if(cls)n.className=cls;if(txt!==undefined)n.textContent=txt;return n}
 function safeLink(a,url){if(/^https:\/\//i.test(url||'')){a.href=url;a.hidden=false}else a.hidden=true}
-// Local page: load the screenshot from the synced Drive folder first; ask the Sheet only if it is not on this computer yet.
 function fetchPoster(id,fileId,original=false){const key=(fileId||id)+(original?':original':':preview');if(!imageRequests.has(key)){const list=data&&data.sources||[];const src=list.find(s=>fileId&&s.fileId===fileId)||list.find(s=>!fileId&&s.id===id);const local=src&&src.label?localFileUrl(src.label):'';const request=new Promise((resolve,reject)=>{const viaSheet=()=>{const timer=setTimeout(()=>reject(new Error('Image request took too long. Try again or open the original.')),30000);google.script.run.withSuccessHandler(r=>{clearTimeout(timer);resolve(r)}).withFailureHandler(e=>{clearTimeout(timer);reject(e)}).getVisualPoster(id,fileId)};if(!local){viaSheet();return}const probe=new Image();probe.onload=()=>resolve({image:local,link:src.link||''});probe.onerror=viaSheet;probe.src=local});imageRequests.set(key,request);request.catch(()=>imageRequests.delete(key))}return imageRequests.get(key)}
 const posterLoads={};
 function loadPoster(side,id,fileId,url){
@@ -180,7 +190,22 @@ const lrKey=ctx=>JSON.stringify([ctx.mode,ctx.sourceId||'',ctx.groupId||'']);
 function lrSave(){lrStore.set(lrSettings);}
 function localFileUrl(name){const base=lrSettings.folder.replace(/\\/g,'/').replace(/\/$/,'');return 'file:///'+base.split('/').map(encodeURIComponent).join('/').replace(/^([A-Za-z])%3A/,'$1:')+'/'+encodeURIComponent(name);}
 
+// The Sheet is locked for a minute or two while the inbox run rebuilds the tabs. Those refusals happen before
+// anything is written, so it is safe to wait and try again instead of showing an error.
+const LR_BUSY=/saving another change|Lock timeout|lock for too long|too many simultaneous|Service invocation/i;
+const LR_WAITS=[3,5,10,15,20,30,30,30,30];
+let lrBusyCount=0;
 async function lrCall(fn,args){
+ for(let attempt=0;;attempt++){
+  try{const r=await lrCallOnce(fn,args);if(attempt){lrBusyCount--;lrStatus();}return r;}
+  catch(e){
+   if(!LR_BUSY.test(e.message)||attempt>=LR_WAITS.length){if(attempt){lrBusyCount--;lrStatus();}throw e;}
+   if(!attempt){lrBusyCount++;lrStatus();}
+   await new Promise(r=>setTimeout(r,LR_WAITS[attempt]*1000));
+  }
+ }
+}
+async function lrCallOnce(fn,args){
  // text/plain keeps this a simple request, so the browser does not need a CORS preflight.
  const res=await fetch(lrSettings.url,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({action:'review',token:lrSettings.token,fn,args})});
  let data;try{data=await res.json();}catch(e){throw new Error('The Sheet did not answer properly (HTTP '+res.status+').');}
@@ -208,7 +233,7 @@ function lrBackgroundSave(args){
   .finally(()=>{lrPending--;lrStatus();});
 }
 function lrMarkDone(payload){lrDone.add(lrKey({mode:payload.mode,sourceId:payload.sourceId,groupId:payload.groupId}));lrRenderList();}
-function lrStatus(){const s=document.getElementById('lr-saving');if(s)s.textContent=lrPending?'Saving '+lrPending+' in the background…':'';}
+function lrStatus(){const s=document.getElementById('lr-saving');if(s)s.textContent=[lrPending?'Saving '+lrPending+' in the background…':'',lrBusyCount?'The Sheet is busy rebuilding; waiting…':''].filter(Boolean).join(' · ');}
 function lrRenderFailures(){
  const box=document.getElementById('lr-failures');box.hidden=!lrFailures.length;box.replaceChildren();
  lrFailures.forEach((f,i)=>box.append(lrEl('div',{},'Not saved: '+f.title+' — '+f.error,
@@ -241,7 +266,7 @@ function lrRenderList(){
  const on=host.querySelector('.on');if(on)on.scrollIntoView({block:'nearest'});
 }
 function lrUnsavedOk(){return !(typeof data!=='undefined'&&data&&!saved&&typeof editSignature==='function'&&editSignature()!==baseline)||confirm('Discard unsaved changes to this entry?');}
-function lrOpen(entry){if(busy)return;if(!lrUnsavedOk())return;const i=queue.findIndex(q=>lrKey(q)===lrKey(entry));if(i<0)return;queueIndex=i;navigate(0);}
+function lrOpen(entry){if(busy)return;if(!lrUnsavedOk())return;lrPrefetch.delete(lrKey(entry));const i=queue.findIndex(q=>lrKey(q)===lrKey(entry));if(i<0)return;queueIndex=i;navigate(0);}
 function lrSwitch(tab){
  if(typeof busy!=='undefined'&&busy)return;if(lrStarted&&!lrUnsavedOk())return;
  lrSettings.tab=tab;lrSave();const items=(lrQueues&&lrQueues[tab])||[];lrRenderTabs();
@@ -260,9 +285,50 @@ function lrPrefetchNext(){
 function lrStartDialog(){
  lrStarted=true;const s=document.createElement('script');s.textContent=document.getElementById('lr-dialog-script').textContent;document.body.append(s);
  // Hooks around the Sheet dialog's own functions.
- const baseRender=render;render=function(d){baseRender(d);lrSettings.last[lrSettings.tab]=lrKey(queue[queueIndex]);lrSave();lrRenderList();lrPrefetchNext();};
+ const baseRender=render;render=function(d){baseRender(d);lrSettings.last[lrSettings.tab]=lrKey(queue[queueIndex]);lrSave();lrRenderList();lrRenderSlides(d);lrPrefetchNext();};
  const baseSave=saveCurrent;saveCurrent=function(advance){lrOptimistic=!!advance;baseSave(advance);lrOptimistic=false;};
  lrRenderList();
+}
+// ---- Slides of this post: link carousel slides and other screenshots of the same post ----
+let lrSlideEpoch=0;
+function lrRenderSlides(d){
+ const epochNow=++lrSlideEpoch;let box=document.getElementById('lr-slides');
+ if(!box){box=lrEl('details',{id:'lr-slides'});const posters=document.querySelector('#lr-dialog .posters');posters.after(box);}
+ box.replaceChildren(lrEl('summary',{},lrEl('b',{text:'Slides of this post'}),' ',lrEl('span',{class:'note',text:'Screenshots taken within 20 minutes of this one. Tick the ones that belong to the same post.'})));
+ if(d.mode==='holding'||!d.sourceId){box.hidden=true;return;}box.hidden=false;
+ const load=()=>{
+  if(box.dataset.loaded==='1')return;box.dataset.loaded='1';const row=lrEl('div',{class:'row',text:'Loading nearby screenshots…'});box.append(row);
+  lrCall('slides',[{sourceId:d.sourceId,groupId:d.groupId}]).then(r=>{if(epochNow!==lrSlideEpoch)return;lrFillSlides(box,row,d,r);},e=>{if(epochNow===lrSlideEpoch)row.textContent=e.message;});
+ };
+ box.dataset.loaded='';box.open=d.mode==='review';box.ontoggle=()=>{if(box.open)load();};if(box.open)load();
+}
+function lrFillSlides(box,row,d,r){
+ row.replaceChildren();const checks=[];
+ r.candidates.forEach(c=>{
+  const img=lrEl('img',{src:localFileUrl(c.name),alt:c.name,loading:'lazy',title:c.name});
+  img.addEventListener('error',()=>{img.replaceWith(lrEl('div',{class:'note',style:'height:260px;width:150px;border:1px dashed #ccc;display:flex;align-items:center;justify-content:center;text-align:center'},lrEl('a',{href:c.link,target:'_blank',text:'Not on this computer yet — open in Drive'})));});
+  img.addEventListener('click',()=>{lastFocus=img;$('zoom').hidden=false;$('zoomImg').onload=fitZoom;$('zoomImg').src=img.src;$('zoomClose').focus();});
+  const tick=lrEl('input',{type:'checkbox'});tick.checked=c.state==='main'||c.state==='linked';tick.disabled=c.state==='main'||c.state==='blocked';tick.dataset.state=c.state;tick.dataset.fileId=c.fileId;checks.push(tick);
+  const when=c.minutes===0?'same minute':(c.minutes>0?'+':'')+c.minutes+' min';
+  row.append(lrEl('div',{class:'slide '+(c.state==='main'?'main':c.state==='linked'?'linked':'')},img,lrEl('label',{},tick,lrEl('span',{text:when+' · '+c.detail}))));
+ });
+ if(r.candidates.length<2)row.append(lrEl('div',{class:'note',text:'No other screenshots near this one.'}));
+ const msg=lrEl('span',{class:'note'});
+ const apply=lrEl('button',{type:'button',text:'Save slides'});
+ apply.onclick=()=>{
+  const link=checks.filter(t=>t.checked&&['none','other'].includes(t.dataset.state)).map(t=>t.dataset.fileId);
+  const unlink=checks.filter(t=>!t.checked&&t.dataset.state==='linked').map(t=>t.dataset.fileId);
+  if(!link.length&&!unlink.length){msg.textContent='Nothing changed.';return;}
+  const moving=checks.filter(t=>t.checked&&t.dataset.state==='other').length;
+  if(moving&&!confirm(moving+' ticked screenshot(s) have their own listing. Linking moves that listing into this one (like Merge). Continue?'))return;
+  if(typeof saved!=='undefined'&&!saved&&editSignature()!==baseline&&!confirm('Linking reloads this entry. Discard unsaved changes to the fields?'))return;
+  apply.disabled=true;msg.textContent='Saving slides…';
+  lrCall('link',[{sourceId:d.sourceId,groupId:d.groupId,link,unlink}]).then(res=>{
+   msg.textContent='Linked '+res.linked+', unlinked '+res.unlinked+(res.skipped.length?' · Skipped: '+res.skipped.join('; '):'')+'.';
+   const ctx=queue[queueIndex];if(ctx)lrPrefetch.delete(lrKey(ctx));navigate(0);
+  },e=>{apply.disabled=false;msg.textContent=e.message;});
+ };
+ box.append(lrEl('div',{style:'display:flex;gap:10px;align-items:center;margin-top:6px'},apply,msg));
 }
 async function lrLoad(){
  if(!/^https:\/\/script\.google\.com\/macros\/s\/[A-Za-z0-9_-]+\/exec$/.test(lrSettings.url)||lrSettings.token.length<32){lrShowSettings(lrSettings.url?'Check the endpoint URL and token.':'');return;}
@@ -273,6 +339,7 @@ async function lrLoad(){
  if(!lrStarted)lrSwitch(lrSettings.tab);
  else{const items=lrQueues[lrSettings.tab]||[],current=queue[queueIndex];queue.splice(0,queue.length,...items);const i=current?items.findIndex(q=>lrKey(q)===lrKey(current)):-1;if(i>=0)queueIndex=i;else{queueIndex=0;if(items.length)navigate(0);}lrRenderList();updateNavigation();}
 }
+window.addEventListener('beforeunload',e=>{if(lrPending){e.preventDefault();e.returnValue='';}});
 document.getElementById('lr-refresh').onclick=()=>lrLoad();
 document.getElementById('lr-reload').onclick=()=>{if(typeof queue!=='undefined'&&queue.length&&lrUnsavedOk()){lrPrefetch.delete(lrKey(queue[queueIndex]));navigate(0);}};
 document.getElementById('lr-settings-btn').onclick=()=>lrShowSettings('');

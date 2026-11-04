@@ -1,0 +1,62 @@
+// Builds review/index.html (the local review page) from the Sheet's review dialog plus the page frame.
+// One source for the dialog: change apps-script/ReviewDialog.html, review/frame-top.html or review/frame.js,
+// then run `npm run build:review`. A test checks review/index.html is up to date.
+import {readFile,writeFile} from 'node:fs/promises';
+import {pathToFileURL} from 'node:url';
+
+function replaceOnce(text,from,to){
+ const count=text.split(from).length-1;
+ if(count!==1)throw new Error('build-review: expected exactly one "'+from.slice(0,60)+'", found '+count+'. ReviewDialog.html changed; update scripts/build-review.mjs.');
+ return text.replace(from,()=>to);
+}
+function between(text,start,end){const i=text.indexOf(start);if(i<0)throw new Error('build-review: missing '+start);const j=text.indexOf(end,i+start.length);if(j<0)throw new Error('build-review: missing '+end);return text.slice(i+start.length,j);}
+
+export async function buildReviewPage(root='.'){
+ const dialog=await readFile(root+'/apps-script/ReviewDialog.html','utf8');
+ const top=await readFile(root+'/review/frame-top.html','utf8');
+ const frame=await readFile(root+'/review/frame.js','utf8');
+ let style=between(dialog,'<style>','</style>');
+ const body=between(dialog,'</style></head><body>','<script>');
+ let script=dialog.slice(dialog.indexOf('<script>')+8,dialog.lastIndexOf('</script>'));
+
+ // Page layout: no dialog margin, bigger posters (they load from disk now).
+ style=replaceOnce(style,'margin:16px;background:#fafbfc}','margin:0;background:#fafbfc}');
+ style=replaceOnce(style,'.poster img{display:block;height:285px;','.poster img{display:block;height:50vh;');
+ style=replaceOnce(style,'.loading{height:285px;','.loading{height:50vh;');
+
+ // The work list comes from the page frame instead of the Sheet template.
+ script=replaceOnce(script,'const context=JSON.parse(<?!= scriptJson_(context) ?>);','const context=window.REVIEW_CONTEXT;');
+
+ // Screenshots: load from the synced Drive folder first; ask the Sheet only if the file is not on this computer yet.
+ const fetchStart=script.indexOf('function fetchPoster('),fetchEnd=script.indexOf('\nconst posterLoads');
+ if(fetchStart<0||fetchEnd<0)throw new Error('build-review: fetchPoster not found');
+ script=script.slice(0,fetchStart)+"function fetchPoster(id,fileId,original=false){const key=(fileId||id)+(original?':original':':preview');if(!imageRequests.has(key)){const list=data&&data.sources||[];const src=list.find(s=>fileId&&s.fileId===fileId)||list.find(s=>!fileId&&s.id===id);const local=src&&src.label?localFileUrl(src.label):'';const request=new Promise((resolve,reject)=>{const viaSheet=()=>{const timer=setTimeout(()=>reject(new Error('Image request took too long. Try again or open the original.')),30000);google.script.run.withSuccessHandler(r=>{clearTimeout(timer);resolve(r)}).withFailureHandler(e=>{clearTimeout(timer);reject(e)}).getVisualPoster(id,fileId)};if(!local){viaSheet();return}const probe=new Image();probe.onload=()=>resolve({image:local,link:src.link||''});probe.onerror=viaSheet;probe.src=local});imageRequests.set(key,request);request.catch(()=>imageRequests.delete(key))}return imageRequests.get(key)}"+script.slice(fetchEnd);
+
+ // The crop editor still lives in the Sheet.
+ const cropStart=script.indexOf("$('fixCrop').onclick="),cropEnd=script.indexOf('\n',cropStart);
+ if(cropStart<0)throw new Error('build-review: fixCrop not found');
+ script=script.slice(0,cropStart)+"$('fixCrop').onclick=()=>{if(!data)return;$('status').textContent='The crop editor is still in the Sheet: select this listing\\'s row there, then Sharing → Prepare selected for sharing.';if(lrSheetUrl)window.open(lrSheetUrl,'_blank');};"+script.slice(cropEnd);
+
+ // Saves from the page can finish in the background.
+ script=replaceOnce(script,"'Saved. You can close this dialog.'","(result.destination==='background'?'Saving in the background…':'Saved.')");
+
+ if(script.includes('<?')||body.includes('<?'))throw new Error('build-review: template tag left in the page');
+ if(/<\/script/i.test(script))throw new Error('build-review: dialog script contains a closing script tag');
+ return top+'/* Review dialog (generated from apps-script/ReviewDialog.html) */\n'+style+'\n#lr-dialog{padding:16px}\n</style>\n</head>\n<body>\n'+
+ `<div id="lr-bar"><b>Review</b><span id="lr-tabs"></span><span class="spacer"></span><span id="lr-saving"></span><span class="muted" id="lr-loaded"></span>
+<button class="plain" id="lr-refresh" title="Fetch the lists again">Refresh lists</button><button class="plain" id="lr-reload" title="Load this entry again from the Sheet">Reload entry</button><button class="plain" id="lr-sheet">Open Sheet</button><button class="plain" id="lr-settings-btn">Settings</button></div>
+<div id="lr-failures" hidden></div>
+<div id="lr-settings-host"></div>
+<div id="lr-main"><nav id="lr-list"></nav><div><div class="lr-empty" id="lr-empty" hidden></div><div id="lr-dialog">
+`+body+`</div></div></div>
+<!-- GENERATED by scripts/build-review.mjs. Do not edit by hand. -->
+<script type="text/plain" id="lr-dialog-script">`+script+`</script>
+<script>
+`+frame+`</script>
+</body>
+</html>
+`;
+}
+if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
+ const html=await buildReviewPage('.');await writeFile('review/index.html',html);console.log('Wrote review/index.html ('+html.length+' bytes).');
+}
