@@ -42,3 +42,18 @@
 #lr-slides .slide.linked img{border-color:#2e9d5b}
 #lr-slides .slide label{display:flex;gap:4px;align-items:flex-start;margin-top:4px}
 #lr-slides .note{color:#65717f;font-size:12px}
+/* Side-by-side compare: long screenshots, top-aligned, scroll together, magnifier */
+#lr-view{display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-top:14px;font-size:13px;color:#3b4652}
+#lr-view .seg{display:inline-flex;border:1px solid #cfd6de;border-radius:6px;overflow:hidden}
+#lr-view .seg button{border:0;border-right:1px solid #cfd6de;background:#fff;padding:4px 10px;cursor:pointer;font:inherit}
+#lr-view .seg button:last-child{border-right:0}
+#lr-view .seg button.on{background:#145c97;color:#fff}
+#lr-view .hint{color:#65717f;font-size:12px}
+.lr-scroll{border-radius:6px;background:#f3f5f7}
+.posters[data-lr-size="fit"] .poster img{height:70vh;width:auto;max-width:100%}
+.posters:not([data-lr-size="fit"]) .lr-scroll{max-height:78vh;overflow:auto}
+.posters[data-lr-size="width"] .poster img{width:100%;height:auto;max-width:none}
+.posters[data-lr-size="150"] .poster img{width:150%;height:auto;max-width:none;margin:0}
+.posters[data-lr-size="200"] .poster img{width:200%;height:auto;max-width:none;margin:0}
+.posters[data-lr-lens]:not([data-lr-lens="0"]) .poster img{cursor:crosshair}
+#lr-lens{position:fixed;width:260px;height:260px;border:2px solid #145c97;border-radius:50%;pointer-events:none;z-index:60;box-shadow:0 4px 18px rgba(0,0,0,.25);background-repeat:no-repeat;background-color:#fff}

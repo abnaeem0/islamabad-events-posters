@@ -106,8 +106,9 @@ function lrPrefetchNext(){
 function lrStartDialog(){
  lrStarted=true;const s=document.createElement('script');s.textContent=document.getElementById('lr-dialog-script').textContent;document.body.append(s);
  // Hooks around the Sheet dialog's own functions.
- const baseRender=render;render=function(d){baseRender(d);lrSettings.last[lrSettings.tab]=lrKey(queue[queueIndex]);lrSave();lrRenderList();lrRenderSlides(d);lrPrefetchNext();if(lrReadAfterLoad&&lrReadAfterLoad===d.groupId){lrReadAfterLoad='';lrReadSlides(d);}};
+ const baseRender=render;render=function(d){baseRender(d);lrSettings.last[lrSettings.tab]=lrKey(queue[queueIndex]);lrSave();lrRenderList();lrResetCompare();lrRenderSlides(d);lrPrefetchNext();if(lrReadAfterLoad&&lrReadAfterLoad===d.groupId){lrReadAfterLoad='';lrReadSlides(d);}};
  const baseSave=saveCurrent;saveCurrent=function(advance){lrOptimistic=!!advance;baseSave(advance);lrOptimistic=false;};
+ lrSetupCompare();
  lrRenderList();
 }
 // ---- Slides of this post: link carousel slides and other screenshots of the same post ----
@@ -166,6 +167,46 @@ function lrFillSlides(box,row,d,r){
  read.onclick=()=>lrReadSlides(d,true);
  box.append(lrEl('div',{style:'display:flex;gap:10px;align-items:center;margin-top:6px;flex-wrap:wrap'},apply,read,msg));
 }
+// ---- Comparing two screenshots side by side ----
+// Long screenshots (poster plus caption) are shown at full width, top-aligned, in two panels that scroll
+// together, so the same line of both stays level. A magnifier follows the pointer.
+const LR_SIZES=[['fit','Whole'],['width','Fit width'],['150','150%'],['200','200%']],LR_LENSES=[['0','Off'],['2','2×'],['3','3×']];
+function lrView(){return Object.assign({size:'width',sync:true,lens:'2'},lrSettings.view||{});}
+function lrApplyView(){
+ const v=lrView(),posters=document.querySelector('#lr-dialog .posters');if(!posters)return;
+ posters.dataset.lrSize=v.size;posters.dataset.lrLens=v.lens;
+ document.querySelectorAll('#lr-view [data-size]').forEach(b=>b.classList.toggle('on',b.dataset.size===v.size));
+ document.querySelectorAll('#lr-view [data-lens]').forEach(b=>b.classList.toggle('on',b.dataset.lens===v.lens));
+ const sync=document.getElementById('lr-sync');if(sync)sync.checked=v.sync;
+}
+function lrSetView(patch){lrSettings.view=Object.assign(lrView(),patch);lrSave();lrApplyView();}
+function lrSetupCompare(){
+ const posters=document.querySelector('#lr-dialog .posters');if(!posters||document.getElementById('lr-view'))return;
+ const seg=(items,key)=>lrEl('span',{class:'seg'},items.map(([v,label])=>lrEl('button',{type:'button',['data-'+key]:v,onclick:()=>lrSetView({[key]:v})},label)));
+ posters.before(lrEl('div',{id:'lr-view'},
+  lrEl('span',{},'Size ',seg(LR_SIZES,'size')),
+  lrEl('label',{},lrEl('input',{type:'checkbox',id:'lr-sync',onchange:e=>lrSetView({sync:e.target.checked})}),' Scroll both together'),
+  lrEl('span',{},'Magnifier ',seg(LR_LENSES,'lens')),
+  lrEl('span',{class:'hint',text:'Scroll inside either picture. Hover to magnify. Click for full screen.'})));
+ // Wrap each picture in its own scroll panel; keep both panels level.
+ const panes=['leftImg','rightImg'].map(id=>{const img=document.getElementById(id);const box=lrEl('div',{class:'lr-scroll'});img.before(box);box.append(img);return box;});
+ let syncing=false;
+ panes.forEach((box,i)=>box.addEventListener('scroll',()=>{if(syncing||!lrView().sync)return;const other=panes[1-i];syncing=true;other.scrollTop=box.scrollTop;other.scrollLeft=box.scrollLeft;requestAnimationFrame(()=>{syncing=false;});}));
+ // Magnifier
+ const lens=lrEl('div',{id:'lr-lens',hidden:''});document.body.append(lens);
+ ['leftImg','rightImg'].forEach(id=>{const img=document.getElementById(id);
+  img.addEventListener('mousemove',e=>{const factor=Number(lrView().lens);if(!factor||!img.src){lens.hidden=true;return;}
+   const r=img.getBoundingClientRect(),x=e.clientX-r.left,y=e.clientY-r.top,size=260;
+   lens.hidden=false;lens.style.left=(e.clientX-size/2)+'px';lens.style.top=(e.clientY-size/2)+'px';
+   lens.style.backgroundImage='url("'+img.src.replace(/"/g,'%22')+'")';
+   lens.style.backgroundSize=(r.width*factor)+'px '+(r.height*factor)+'px';
+   lens.style.backgroundPosition=(size/2-x*factor)+'px '+(size/2-y*factor)+'px';});
+  img.addEventListener('mouseleave',()=>{lens.hidden=true;});
+ });
+ window.addEventListener('scroll',()=>{lens.hidden=true;},{passive:true});
+ lrApplyView();
+}
+function lrResetCompare(){document.querySelectorAll('#lr-dialog .lr-scroll').forEach(b=>{b.scrollTop=0;b.scrollLeft=0;});const lens=document.getElementById('lr-lens');if(lens)lens.hidden=true;}
 async function lrLoad(){
  if(!/^https:\/\/script\.google\.com\/macros\/s\/[A-Za-z0-9_-]+\/exec$/.test(lrSettings.url)||lrSettings.token.length<32){lrShowSettings(lrSettings.url?'Check the endpoint URL and token.':'');return;}
  document.getElementById('lr-loaded').textContent='Loading list…';
