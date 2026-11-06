@@ -53,8 +53,31 @@ console.log('PASS: review page token is separate, lists work, opens and saves th
  assert(run("isProcessed_('slide-2')"),'a linked slide is not extracted on its own later');
  const again=review('slides',[{sourceId:main.id,groupId:main.group_id}]).result.candidates;assert(again.filter(c=>c.state==='linked').length===2);
  const stale=review('link',[{sourceId:main.id,groupId:'wrong',link:['slide-2']}]);assert.equal(stale.ok,false);
+ // Read all linked slides together: suggestions only for missing fields, cached, nothing saved.
+ let calls=0,seenImages=0;context.geminiRequest_=(m,payload)=>{calls++;seenImages=payload.contents[0].parts.filter(p=>p.inlineData).length;return {text:JSON.stringify({suggestions:[
+  {field:'address',value:'House 5, Street 10, F-7/2, Islamabad',confidence:'high',reason:'Address slide',image_indices:[1]},
+  {field:'price',value:'Rs 1500',confidence:'low',reason:'blurry',image_indices:[2]},
+  {field:'title',value:'Something else',confidence:'high',reason:'x',image_indices:[0]},
+  {field:'contact',value:'0300 1234567',confidence:'medium',reason:'Caption',image_indices:[9]}]})};};
+ const mainNow=run("vrRows_(PIPE.RAW).find(r=>r.original_image_file_id==='public-poster')");
+ const fields={title:'Published event',start_date:'2099-12-20',venue:'Somewhere'};
+ const read=review('read_slides',[{sourceId:mainNow.id,groupId:mainNow.group_id,mode:'edit',fields}]);assert(read.ok,read.error);
+ assert.equal(calls,1);assert(seenImages>=2,'all linked slides go to Gemini together');
+ assert.deepEqual(read.result.suggestions.map(x=>x.field),['address'],'only confident, sourced values for missing fields');
+ assert(read.result.key&&read.result.sources.length>=2);
+ const again2=review('read_slides',[{sourceId:mainNow.id,groupId:mainNow.group_id,mode:'edit',fields}]);assert(again2.ok&&again2.result.cached);assert.equal(calls,1,'same slides and facts: cached, no second Gemini call');
+ assert.equal(run("vrRows_(PIPE.UPCOMING)[0].address||''"),'','reading slides saves nothing');
+ const forced=review('read_slides',[{sourceId:mainNow.id,groupId:mainNow.group_id,mode:'edit',fields,force:true}]);assert(forced.ok&&!forced.result.cached);assert.equal(calls,2,'Read again makes a fresh call');
  const un=review('link',[{sourceId:main.id,groupId:main.group_id,unlink:['slide-2','slide-3']}]);assert(un.ok,un.error);assert.equal(un.result.unlinked,2);
  assert.notEqual(run("vrRows_(PIPE.RAW).find(r=>r.original_image_file_id==='slide-3').group_id"),String(main.group_id));
+ // A screenshot that produced two listings is used as a supporting slide: attached, not moved.
+ const multi=h.file('two-workshops',[7,7,7,7,7]);context.geminiRequest_=()=>({text:JSON.stringify({events:[{listing_kind:'event',title:'Workshop A',start_date:'2099-12-22',venue:'Studio',confidence:'high',uncertain_fields:[]},{listing_kind:'event',title:'Workshop B',start_date:'2099-12-23',venue:'Studio',confidence:'high',uncertain_fields:[]}]})});context.multiFile=multi;run('processOneFile_(multiFile)');
+ run("vrRows_(PIPE.RAW).filter(x=>x.original_image_file_id==='two-workshops').forEach(r=>vrUpdateRow_(PIPE.RAW,r._row,{group_id:'E_'+r.id,match_status:'separate'}))");
+ const m2=run("vrRows_(PIPE.RAW).find(r=>r.original_image_file_id==='public-poster')");
+ assert.equal(review('slides',[{sourceId:m2.id,groupId:m2.group_id}]).result.candidates.find(c=>c.fileId==='two-workshops').state,'support');
+ const sup=review('link',[{sourceId:m2.id,groupId:m2.group_id,link:['two-workshops']}]);assert(sup.ok,sup.error);
+ assert.equal(run("vrRows_(PIPE.RAW).filter(x=>x.original_image_file_id==='two-workshops'&&x.group_id==="+JSON.stringify(String(m2.group_id))+").length"),0,'its listings stay where they are');
+ assert.equal(review('slides',[{sourceId:m2.id,groupId:m2.group_id}]).result.candidates.find(c=>c.fileId==='two-workshops').state,'linked');
  console.log('PASS: slides of a post can be listed, linked and unlinked, with no Drive calls under the lock.');
 }
 {

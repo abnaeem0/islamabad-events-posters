@@ -53,6 +53,7 @@ Flow: phone screenshot -> Google Drive inbox -> Apps Script + Gemini -> Google S
 - `apps-script/Companions.gs`: decides whether two screenshots are the same event or place.
 - `apps-script/Screenshots.gs`: groups consecutive screenshots (not called by `processInbox` today).
 - `apps-script/Research.gs`: on-demand Google Search lookup for missing details. Probably does not work on a free key; untested.
+- `apps-script/SlideReading.gs`: reads all linked slides of a listing together and suggests its missing details (same suggestion format and cache tab as Research). Called from the review page; capped at 20 calls a day.
 - `apps-script/Sharing.gs`: crop suggestion prompt, crop storage, legacy publishing, WhatsApp captions.
 
 **Matching and cleanup**

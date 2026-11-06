@@ -106,12 +106,22 @@ function lrPrefetchNext(){
 function lrStartDialog(){
  lrStarted=true;const s=document.createElement('script');s.textContent=document.getElementById('lr-dialog-script').textContent;document.body.append(s);
  // Hooks around the Sheet dialog's own functions.
- const baseRender=render;render=function(d){baseRender(d);lrSettings.last[lrSettings.tab]=lrKey(queue[queueIndex]);lrSave();lrRenderList();lrRenderSlides(d);lrPrefetchNext();};
+ const baseRender=render;render=function(d){baseRender(d);lrSettings.last[lrSettings.tab]=lrKey(queue[queueIndex]);lrSave();lrRenderList();lrRenderSlides(d);lrPrefetchNext();if(lrReadAfterLoad&&lrReadAfterLoad===d.groupId){lrReadAfterLoad='';lrReadSlides(d);}};
  const baseSave=saveCurrent;saveCurrent=function(advance){lrOptimistic=!!advance;baseSave(advance);lrOptimistic=false;};
  lrRenderList();
 }
 // ---- Slides of this post: link carousel slides and other screenshots of the same post ----
-let lrSlideEpoch=0;
+let lrSlideEpoch=0,lrReadAfterLoad='';
+// Gemini reads every linked slide together and suggests this listing's missing details.
+// The suggestions appear in the research box with "Use this value"; nothing is saved until you save.
+function lrReadSlides(d,force){
+ const status=$('researchStatus');status.textContent='Reading all linked slides for missing details…';
+ lrCall('read_slides',[{sourceId:d.sourceId,groupId:d.groupId,mode:d.mode,fields:finalFields(),force:!!force}]).then(r=>{
+  if(data!==d||saved)return;researchResult=r;researchSelections.clear();renderResearch(r);
+  status.textContent=r.suggestions.length?(r.cached?'From the linked slides (already read before).':'Read from the linked slides.')+' Choose the values to use.':'The linked slides add no missing details.';
+  $('researchResults').scrollIntoView({block:'nearest',behavior:'smooth'});
+ },e=>{if(data===d)status.textContent=e.message;});
+}
 function lrRenderSlides(d){
  const epochNow=++lrSlideEpoch;let box=document.getElementById('lr-slides');
  if(!box){box=lrEl('details',{id:'lr-slides'});const posters=document.querySelector('#lr-dialog .posters');posters.after(box);}
@@ -137,7 +147,7 @@ function lrFillSlides(box,row,d,r){
  const msg=lrEl('span',{class:'note'});
  const apply=lrEl('button',{type:'button',text:'Save slides'});
  apply.onclick=()=>{
-  const link=checks.filter(t=>t.checked&&['none','other'].includes(t.dataset.state)).map(t=>t.dataset.fileId);
+  const link=checks.filter(t=>t.checked&&['none','other','support'].includes(t.dataset.state)).map(t=>t.dataset.fileId);
   const unlink=checks.filter(t=>!t.checked&&t.dataset.state==='linked').map(t=>t.dataset.fileId);
   if(!link.length&&!unlink.length){msg.textContent='Nothing changed.';return;}
   const moving=checks.filter(t=>t.checked&&t.dataset.state==='other').length;
@@ -146,10 +156,15 @@ function lrFillSlides(box,row,d,r){
   apply.disabled=true;msg.textContent='Saving slides…';
   lrCall('link',[{sourceId:d.sourceId,groupId:d.groupId,link,unlink}]).then(res=>{
    msg.textContent='Linked '+res.linked+', unlinked '+res.unlinked+(res.skipped.length?' · Skipped: '+res.skipped.join('; '):'')+'.';
-   const ctx=queue[queueIndex];if(ctx)lrPrefetch.delete(lrKey(ctx));navigate(0);
+   const ctx=queue[queueIndex];if(ctx)lrPrefetch.delete(lrKey(ctx));if(res.linked)lrReadAfterLoad=d.groupId;navigate(0);
   },e=>{apply.disabled=false;msg.textContent=e.message;});
  };
- box.append(lrEl('div',{style:'display:flex;gap:10px;align-items:center;margin-top:6px'},apply,msg));
+ const linkedCount=r.candidates.filter(c=>c.state==='main'||c.state==='linked').length;
+ const read=lrEl('button',{type:'button',text:'Read all linked slides for missing details'});read.disabled=linkedCount<2;
+ read.title=linkedCount<2?'Link at least one more slide first.':'Gemini reads the '+linkedCount+' linked screenshots together. Uses one Gemini call.';
+ // Pressing the button reads again even if an earlier answer is cached; linking reads once automatically.
+ read.onclick=()=>lrReadSlides(d,true);
+ box.append(lrEl('div',{style:'display:flex;gap:10px;align-items:center;margin-top:6px;flex-wrap:wrap'},apply,read,msg));
 }
 async function lrLoad(){
  if(!/^https:\/\/script\.google\.com\/macros\/s\/[A-Za-z0-9_-]+\/exec$/.test(lrSettings.url)||lrSettings.token.length<32){lrShowSettings(lrSettings.url?'Check the endpoint URL and token.':'');return;}
