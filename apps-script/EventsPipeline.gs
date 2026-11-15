@@ -196,6 +196,12 @@ function refreshEventViews_() {
         updateMeta_(sh,s._row,{group_id:blocked.group_id,match_status:blocked.match_status,review_reason:blocked.match_status==='research'?'Parked for research':blocked.match_status==='trash'?'Removed to Trash':'Excluded: not local',suggested_group_id:''});
         return;
       }
+      const slideGroup=carouselSlideGroup_(s,source);
+      if(slideGroup){
+        updateMeta_(sh,s._row,{group_id:slideGroup,match_status:'companion',review_reason:'',suggested_group_id:''});
+        s.group_id=slideGroup;s.match_status='companion';s.review_reason='';s.suggested_group_id='';
+        if(!groups[slideGroup])groups[slideGroup]=[];groups[slideGroup].push(s);return;
+      }
       const candidates=Object.keys(groups).map(function(key){const candidate=byId[key]||groups[key][0];return {gid:key, match:matchCandidate_(s,candidate)};})
         .filter(function(x){return x.match.type!=='none';}).sort(function(a,b){return b.match.score-a.match.score;});
       const best=candidates[0];

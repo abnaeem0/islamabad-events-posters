@@ -45,6 +45,32 @@ function companionCandidate_(a,b){
   // A reschedule is reviewable, never an automatic merge across dates.
   return {eligible:eligible,score:score,strong:(anchors>=2||partialContext&&(account||near))&&!differentDate,differentDate:differentDate};
 }
+// Carousel slides (2026-11-16): I screenshot every slide of a post with the caption box visible, then one long
+// screenshot of the caption. Slides join one listing automatically only when ALL hold: same posting account, the
+// same first 8+ caption words, captured within 30 minutes, no conflicting dates, one listing per screenshot, and
+// exactly one listing to join. Anything less falls back to the normal matching and review.
+const SLIDE_LINK={MIN_WORDS:8,WINDOW_MS:30*60000};
+function slideKey_(row){
+  const c=companionClues_(row),account=blank_(c.post_account||row.source_account).toLowerCase().replace(/^@/,'').trim();
+  const words=companionTextKey_(c.caption_start).split(' ').filter(Boolean);
+  return account&&words.length>=SLIDE_LINK.MIN_WORDS?account+'|'+words.slice(0,SLIDE_LINK.MIN_WORDS).join(' '):'';
+}
+function carouselSlideGroup_(s,rows){
+  const key=slideKey_(s),moment=screenshotMoment_(s),file=String(s.original_image_file_id||'');
+  if(!key||moment===null||!file)return '';
+  const perFile=function(id){return rows.filter(function(r){return String(r.original_image_file_id)===id;});};
+  if(perFile(file).length!==1)return '';
+  const groups={};
+  rows.forEach(function(t){
+    const tf=String(t.original_image_file_id||''),tm=screenshotMoment_(t);
+    if(t===s||!t.group_id||!tf||tf===file||tm===null||Math.abs(tm-moment)>SLIDE_LINK.WINDOW_MS||slideKey_(t)!==key)return;
+    if(dateKey_(s.start_date)&&dateKey_(t.start_date)&&dateKey_(s.start_date)!==dateKey_(t.start_date)){groups.__conflict=true;return;}
+    if(perFile(tf).length!==1){groups.__conflict=true;return;}
+    groups[String(t.group_id)]=true;
+  });
+  if(groups.__conflict)return '';
+  const ids=Object.keys(groups);return ids.length===1?ids[0]:'';
+}
 function companionPairKey_(a,b){return digestKey_(JSON.stringify([a,b].sort(function(x,y){return String(x.id).localeCompare(String(y.id));}).map(function(r){return {id:r.id,file:r.original_image_file_id,facts:eventFields_().map(function(k){return eventDetailKey_(k,r[k]);}),clues:companionClues_(r)};})));}
 function canonicalObjects_(){
   const byId={};[PIPE.RECORDS,PIPE.UPCOMING,PIPE.PLACES].forEach(function(name){const sh=SpreadsheetApp.openById(getSettings_().spreadsheetId).getSheetByName(name);if(sh)readObjects_(sh).forEach(function(r){if(name!==PIPE.PLACES||!byId[String(r.group_id)])byId[String(r.group_id)]=r;});});return byId;
