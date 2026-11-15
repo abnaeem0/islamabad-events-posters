@@ -63,6 +63,7 @@ Build one small piece at a time. Nothing below is started.
 - [ ] Publishing accepts only JPEG/PNG up to 6 MB, while extraction accepts HEIC, HEIF and WebP up to 15 MB. Close that gap before iPhone use.
 
 **Public site**
+- [x] Long events no longer fill the top of Upcoming (2026-11-16, my request). Once a multi-day event has started, trips, hikes, camps, retreats, workshops, courses and anything of unclear type move to Past events, because you can only join them on day one. Drop-in events (festival, exhibition, market, fair, bazaar, mela, expo) stay until their last day, shown as "On now · until …" below the events starting today. Decided from the title and categories in `eventPhase` (`src/Noticeboard.tsx`); test in `scripts/event-phase.test.mjs` (now part of `npm test`).
 - [ ] A weekend board: events first, then things to do. "Dates to be confirmed" strip, collapsed, below Upcoming.
 - [ ] Things to do: activity chips (hiking, cycling, swimming) that also filter events; a place card lists the upcoming events held there; an offer shows as a limited-time note on its place card; products carry a "to buy" tag.
 - [ ] Map, and a shortlist around my location (after the multi-sector filter).
@@ -137,6 +138,7 @@ Draft of the value paragraph for the prompt:
 - Titles are escaped by `scriptJson_` before going into dialogs. Not every dialog was checked.
 
 ## Decisions
+- **2026-11-16: A started multi-day event is past unless it is clearly drop-in.** Trip words win over drop-in words ("festival trip to Chitral" is a trip). Unclear types count as trips: hiding one early beats sending someone to a trip that has left.
 - **2026-11-16: Crops are top-to-bottom only, and a blank image beats a held listing.** Sides are always kept. When there is no clear poster, or the AI is unsure, the listing goes up with details only. I can still draw a manual crop, which is never overwritten.
 - **2026-11-06: What linking slides does to a listing (recorded so it is not re-asked).** The listing keeps its ID, its saved values and its place on the website; nothing is extracted again and no new review item is made. A linked screenshot that had its own listing: its rows join this listing, its old listing disappears from the tabs and the website at the next rebuild, and its open review item is removed. If I have never edited this listing, the next rebuild fills its **empty** fields from the joined rows automatically (never replaces filled ones); once I have edited it, nothing is filled automatically and "Read all linked slides" suggestions are the way in. A slide with no listing only adds an image.
 - **2026-11-06: Where review items go.** The Event Review list is rebuilt on every rebuild. An item stays until I decide it, or until its event date has passed, when it drops off silently. Undated items (places, courses) stay until decided. While the main screenshot of a listing has an open item, the listing is held off the website.
