@@ -1,9 +1,14 @@
 const assert=require('node:assert/strict'),{harness}=require('./harness.cjs');
 const {context,run,file}=harness();run('withDataLock_(setupPipeline_)');file('image');let calls=0;
-context.geminiRequest_=(model,body)=>{calls++;assert(body.contents[0].parts[0].text.includes('FULL ORIGINAL'));return {text:JSON.stringify({use_image:true,box:[0,200,1000,650],confidence:'high',reason:'complete relevant poster'})};};
+context.geminiRequest_=(model,body)=>{calls++;assert(body.contents[0].parts[0].text.includes('FULL ORIGINAL'));return {text:JSON.stringify({use_image:true,top:200,bottom:650,confidence:'high',reason:'complete relevant poster'})};};
 run("withDataLock_(()=>storeCrop_('image',[0,400,1000,500],'ready','Old extraction crop'))");
 assert.equal(run("suggestPosterCrop_('image').crop_json"),'[0,200,1000,650]');run("suggestPosterCrop_('image')");assert.equal(calls,1,'Cached visual selection');
 run("withDataLock_(()=>storeCrop_('image',[0,100,1000,800],'ready','Crop checked manually'))");run("suggestPosterCrop_('image')");assert.equal(calls,1,'Manual choice preserved');
 file('text');context.geminiRequest_=()=>({text:JSON.stringify({use_image:false,box:[0,0,1000,1000],confidence:'high',reason:'Unhelpful comment slide'})});assert.equal(run("suggestPosterCrop_('text').crop_status"),'skip');
-file('uncertain');context.geminiRequest_=()=>({text:JSON.stringify({use_image:false,box:[0,0,1000,1000],confidence:'low',reason:'Unclear post identity'})});assert.equal(run("suggestPosterCrop_('uncertain').crop_status"),'review');
-console.log('PASS independent visual selection, legacy refresh, caching, manual protection, skip and uncertainty');
+file('uncertain');context.geminiRequest_=()=>({text:JSON.stringify({use_image:false,box:[0,0,1000,1000],confidence:'low',reason:'Unclear post identity'})});assert.equal(run("suggestPosterCrop_('uncertain').crop_status"),'skip','Unsure: publish without an image, do not hold');
+file('medium');context.geminiRequest_=()=>({text:JSON.stringify({use_image:true,top:100,bottom:600,confidence:'medium',reason:'edges unclear'})});assert.equal(run("suggestPosterCrop_('medium').crop_status"),'skip');
+file('legacy');context.geminiRequest_=()=>({text:JSON.stringify({use_image:true,box:[150,120,850,700],confidence:'high',reason:'old format'})});assert.equal(run("suggestPosterCrop_('legacy').crop_json"),'[0,120,1000,700]','Sides never cut');
+run("withDataLock_(()=>storeCrop_('old',[200,100,800,900],'ready','Visual v2: old AI crop'))");assert.equal(run("JSON.stringify(publicCropBox_(cropRow_('old')))"),'[0,100,1000,900]','Old AI crops exported at full width');
+run("withDataLock_(()=>storeCrop_('hand',[200,100,800,900],'ready','Crop checked manually'))");assert.equal(run("JSON.stringify(publicCropBox_(cropRow_('hand')))"),'[200,100,800,900]','Manual crops untouched');
+run("withDataLock_(()=>storeCrop_('stuck',[0,0,1000,1000],'review','Visual v2: unsure'))");assert.equal(run("visualCropCurrent_(cropRow_('stuck'))"),false,'Held v2 crops are retried');
+console.log('PASS independent visual selection, legacy refresh, caching, manual protection, skip and uncertainty, full-width crops');

@@ -14,7 +14,7 @@ function githubManifest_(){
   const items=[];let held=0;
   all.forEach(x=>{
    const main=cropRow_(String(x.record.original_image_file_id));if(!main||!['ready','skip'].includes(main.crop_status)){held++;return;}
-   const images=sourcesForGroup_(x.record.group_id,x.record.original_image_file_id).map(image=>{const crop=cropRow_(image.fileId);return crop&&crop.crop_status==='ready'?{fileId:image.fileId,crop:JSON.parse(crop.crop_json)}:null;}).filter(Boolean).slice(0,50);
+   const images=sourcesForGroup_(x.record.group_id,x.record.original_image_file_id).map(image=>{const crop=cropRow_(image.fileId);return crop&&crop.crop_status==='ready'?{fileId:image.fileId,crop:publicCropBox_(crop)}:null;}).filter(Boolean).slice(0,50);
    const item=publicListing_(x.record,x.kind);item.publication_hash=githubPublicationHash_(x.record,x.kind);item.published_at=vrString_(x.record.updated_at||x.record.saved_at||x.record.processed_at,'updated_at')||new Date().toISOString();items.push({item: item,images:images});
   });
   // Tickets and derived timestamps must not destabilize the snapshot version.
