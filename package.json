@@ -6,7 +6,7 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "sync": "node scripts/sync.mjs",
-    "test": "node --test scripts/site.test.mjs scripts/event-phase.test.mjs scripts/instagram-links.test.mjs",
+    "test": "node --test scripts/site.test.mjs scripts/event-phase.test.mjs scripts/instagram-links.test.mjs scripts/whatsapp-contact.test.mjs",
     "build:review": "node scripts/build-review.mjs"
   },
   "dependencies": {
