@@ -68,9 +68,10 @@ Flow: phone screenshot -> Google Drive inbox -> Apps Script + Gemini -> Google S
 - `apps-script/MenuActions.gs`: menu shortcuts, Trash and Trash restore.
 - `apps-script/ResearchHolding.gs`: the private "Research" parking tab.
 - `apps-script/ShareDialog.html`: crop editor and caption tool.
+- `apps-script/Suggestions.gs`: "Suggest a change" notes from the website (doPost action `suggest`, no token, 30 a day) into the Suggestions tab; listed and marked done on the local review page ("Suggestions" tab).
 
 **Publishing**
-- `apps-script/GitHubExport.gs`: authenticated `doPost` endpoint the GitHub Action calls (manifest, image files, ack), plus `review` calls for the local review page (separate token). Serves only JPEG/PNG up to 6 MB.
+- `apps-script/GitHubExport.gs`: authenticated `doPost` endpoint the GitHub Action calls (manifest, image files, ack), plus `review` calls for the local review page (separate token) and public `suggest` notes (no token; see `Suggestions.gs`). Serves only JPEG/PNG up to 6 MB.
 - `apps-script/PublicationAudit.gs`: compares the live site with the Sheet and flags stuck listings.
 - `apps-script/PublicOutbox.gs`: removal queue for the old non-GitHub publishing path.
 - `apps-script/SetupGitHub.gs`: one-time token and Pages URL setup.
@@ -84,7 +85,7 @@ Flow: phone screenshot -> Google Drive inbox -> Apps Script + Gemini -> Google S
 - `src/Noticeboard.tsx`, `main.tsx`, `render.tsx`, `location.ts`: the React page. `docs/` is the published site (generated), plus `docs/SETUP.md` and `docs/EVENT_SCHEMA.md`.
 
 **Tests** (all currently pass)
-- `tests/*.cjs`: Apps Script logic, using a fake Google environment in `tests/harness.cjs`. Run each with `node tests/<name>.cjs`.
+- `tests/*.cjs`: Apps Script logic, using a fake Google environment in `tests/harness.cjs`. Run each with `node tests/<name>.cjs`. `tests/suggestions.cjs` covers the website suggestions.
 - `scripts/*.test.mjs`: export, site, event-phase, Instagram-link, WhatsApp-contact and review-page checks (`review-page.test.mjs` fails if `review/index.html` is out of date). `npm test` runs `scripts/site.test.mjs`, `scripts/event-phase.test.mjs`, `scripts/instagram-links.test.mjs` and `scripts/whatsapp-contact.test.mjs`.
 
 **Other**

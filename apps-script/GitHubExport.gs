@@ -32,6 +32,9 @@ function doPost(e){
   // The local review page has its own token (LOCAL_REVIEW_TOKEN). It can read and save review decisions
   // (the same things the Sheet dialog does), but cannot export the site or download arbitrary files.
   // The GitHub token cannot use the review page's calls.
+  // Public "Suggest a change" notes from the website (Suggestions.gs). No token: it can only add a short row
+  // to the Suggestions tab, at most 30 a day.
+  if(body.action==='suggest'){if(text.length>5000)throw new Error('Request too large');return ContentService.createTextOutput(JSON.stringify(receiveSuggestion_(body))).setMimeType(ContentService.MimeType.JSON);}
   if(body.action==='review'){
    const reviewToken=PropertiesService.getScriptProperties().getProperty('LOCAL_REVIEW_TOKEN');
    if(!reviewToken||reviewToken.length<32||!githubEqual_(body.token,reviewToken))throw new Error('Unauthorized');

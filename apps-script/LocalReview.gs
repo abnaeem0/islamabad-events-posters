@@ -18,7 +18,10 @@ const LOCAL_REVIEW_CALLS={
  slides:payload=>localSlideCandidates_(payload),
  // Drive look-ups happen before taking the data lock, so the lock stays short.
  link:payload=>{const metas=localSlideMetas_(payload&&payload.link);return withDataLock_(()=>localLinkSlides_(payload,metas));},
- read_slides:payload=>readLinkedSlides(payload)
+ read_slides:payload=>readLinkedSlides(payload),
+ // Website suggestions (Suggestions.gs)
+ suggestions:()=>({ok:true,items:openSuggestions_()}),
+ suggestion_done:payload=>markSuggestionDone_(payload)
 };
 function localReviewCall_(body){
  const fn=LOCAL_REVIEW_CALLS[String(body.fn||'')];

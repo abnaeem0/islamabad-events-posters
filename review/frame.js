@@ -79,7 +79,32 @@ function lrShowSettings(message){
 function lrRenderTabs(){
  const host=document.getElementById('lr-tabs');host.replaceChildren();
  LR_TABS.forEach(([id,label])=>host.append(lrEl('button',{class:'tab'+(lrSettings.tab===id?' on':''),onclick:()=>lrSwitch(id)},label+' ('+((lrQueues&&lrQueues[id])||[]).length+')')));
+ if(lrSuggestions)host.append(lrEl('button',{class:'tab'+(lrSuggestOpen?' on':''),onclick:()=>{lrSuggestOpen=!lrSuggestOpen;lrRenderTabs();lrRenderSuggestions();}},'Suggestions ('+lrSuggestions.length+')'));
  document.getElementById('lr-loaded').textContent=lrLoadedAt?'List loaded '+lrLoadedAt:'';
+}
+// ---- Suggestions sent from the website ("Suggest a change") ----
+// Shown in their own panel above the review work. Open the listing, fix it in the review as usual, then mark it done.
+let lrSuggestions=null,lrSuggestOpen=false;
+async function lrLoadSuggestions(){
+ try{const r=await lrCall('suggestions',[]);lrSuggestions=r.items||[];}
+ catch(e){lrSuggestions=null;}// An older Web App version does not have this call yet.
+ lrRenderTabs();lrRenderSuggestions();
+}
+function lrRenderSuggestions(){
+ let box=document.getElementById('lr-suggest');
+ if(!box){box=lrEl('section',{id:'lr-suggest'});document.getElementById('lr-failures').after(box);}
+ box.hidden=!lrSuggestOpen||!lrSuggestions;if(box.hidden)return;
+ box.replaceChildren(lrEl('h3',{text:lrSuggestions.length?'Suggestions from the website':'No open suggestions.'}));
+ lrSuggestions.forEach((x,i)=>{
+  const msg=lrEl('span',{class:'note'});
+  const done=lrEl('button',{type:'button',text:'Mark done',onclick:()=>{done.disabled=true;msg.textContent='Saving…';
+   lrCall('suggestion_done',[{row:x.row,received_at:x.received_at}]).then(()=>{lrSuggestions.splice(lrSuggestions.indexOf(x),1);lrRenderTabs();lrRenderSuggestions();},e=>{done.disabled=false;msg.textContent=e.message;});}});
+  box.append(lrEl('div',{class:'item'},
+   lrEl('div',{class:'head'},lrEl('b',{text:x.title||'(no listing named)'}),' ',lrEl('span',{class:'note',text:new Date(x.received_at).toLocaleString()})),
+   lrEl('p',{text:x.message}),
+   x.contact?lrEl('p',{class:'note',text:'Contact: '+x.contact}):null,
+   lrEl('div',{class:'acts'},x.url?lrEl('a',{href:x.url,target:'_blank',rel:'noopener noreferrer',text:'Open on the site ↗'}):null,done,msg)));
+ });
 }
 function lrRenderList(){
  const host=document.getElementById('lr-list');if(!host||typeof queue==='undefined')return;host.replaceChildren();
@@ -212,7 +237,7 @@ async function lrLoad(){
  document.getElementById('lr-loaded').textContent='Loading list…';
  try{const r=await lrCall('list',[]);lrQueues=r.queues;lrSheetUrl=r.sheetUrl||'';lrLoadedAt=new Date(r.checked_at).toLocaleTimeString();}
  catch(e){lrShowSettings('Could not load the list: '+e.message);return;}
- lrRenderTabs();
+ lrRenderTabs();lrLoadSuggestions();
  if(!lrStarted)lrSwitch(lrSettings.tab);
  else{const items=lrQueues[lrSettings.tab]||[],current=queue[queueIndex];queue.splice(0,queue.length,...items);const i=current?items.findIndex(q=>lrKey(q)===lrKey(current)):-1;if(i>=0)queueIndex=i;else{queueIndex=0;if(items.length)navigate(0);}lrRenderList();updateNavigation();}
 }
