@@ -21,3 +21,7 @@ test('reposters are found from the listings',async()=>{
  assert.ok(!findReposters([e('newpage','Neko Studio'),e('newpage','HEAL')]).has('newpage'),'Not before 3');
  assert.deepEqual(instagramLinks({source_account:'newpage',organizer:'',contact:'@heal.community_',description:''},new Set(['newpage'])).map(x=>(x.shared?'shared:':'')+x.handle),['heal.community_','shared:newpage']);
 });
+test('accounts the post credits come first',()=>{
+ const links=instagramLinks({source_account:'islamabad.visitopia.online',organizer:'The Hill Walkers',contact:'',description:'',credited_accounts:'thehillwalkers, genzhikers'},new Set(['islamabad.visitopia.online']));
+ assert.deepEqual(links.map(x=>(x.shared?'shared:':'')+x.handle),['thehillwalkers','genzhikers','shared:islamabad.visitopia.online']);
+});

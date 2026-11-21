@@ -1,7 +1,7 @@
 'use client';
 import { listingArea } from './location';
 import { useEffect,useState,useRef } from 'react';
-export type Item={area?:string;id:string;kind:string;title:string;poster:string;posters?:string[];location_note?:string;valid_until?:string;expiry_mode?:string;start_date:string;end_date:string;start_time:string;end_time:string;venue:string;address:string;organizer:string;price:string;contact:string;registration_url:string;description:string;categories:string;age_info:string;source_account:string;place_type:string;last_checked:string;published_at:string};
+export type Item={area?:string;id:string;kind:string;title:string;poster:string;posters?:string[];location_note?:string;valid_until?:string;expiry_mode?:string;start_date:string;end_date:string;start_time:string;end_time:string;venue:string;address:string;organizer:string;price:string;contact:string;registration_url:string;description:string;categories:string;age_info:string;source_account:string;credited_accounts?:string;place_type:string;last_checked:string;published_at:string};
 const today=()=>new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Karachi',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
 const tags=(s:string)=>String(s||'').split(/[,;|]/).map(x=>x.trim()).filter(Boolean);
 const date=(d:string)=>d?new Date(d+'T12:00:00+05:00').toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short',year:'numeric',timeZone:'Asia/Karachi'}):'';
@@ -15,7 +15,8 @@ export function eventPhase(i:Pick<Item,'start_date'|'end_date'|'title'|'categori
  const end=i.end_date||i.start_date;if(end<day)return 'past';if(!i.start_date||i.start_date>=day)return 'upcoming';
  const text=i.title+' '+i.categories;return !startOnly.test(text)&&dropIn.test(text)?'ongoing':'past';
 }
-// Instagram links (2026-11-21): link the account that made the event first. Repost pages are welcome,
+// Instagram links (2026-11-21): link the account that made the event first: accounts the post credits
+// (credited_accounts, read by Gemini), then handles in the organizer, contact or description, then the poster. Repost pages are welcome,
 // but one that posts 20 times a day makes a single event hard to find, and the maker's own page has the
 // most current details. So reposters' links come last, labelled "Shared by". When several accounts are
 // known we show them all (at most 4) rather than guess.
@@ -34,12 +35,13 @@ export function findReposters(items:Pick<Item,'organizer'|'source_account'>[]){
  for(const i of items){const acc=String(i.source_account||'').trim().replace(/^@/,'').toLowerCase();if(!acc||!i.organizer)continue;const c=seen.get(acc)||{n:0,other:0};c.n++;if(!sameName(acc,i.organizer))c.other++;seen.set(acc,c);}
  return new Set([...seen].filter(([,c])=>c.n>=3&&c.other*3>=c.n*2).map(([acc])=>acc));
 }
-export function instagramLinks(i:Pick<Item,'organizer'|'contact'|'description'|'source_account'>,reposters:Set<string>=new Set()){
+export function instagramLinks(i:Pick<Item,'organizer'|'contact'|'description'|'source_account'>&{credited_accounts?:string},reposters:Set<string>=new Set()){
  const clean=(h:string)=>h.trim().replace(/^@/,'').replace(/\.+$/,'').toLowerCase(),ok=(h:string)=>/^[a-z0-9_.]{2,30}$/.test(h)&&!/^\d+$/.test(h);
  const shared=(h:string)=>knownReposters.test(h)||reposters.has(h);
  const written=[i.organizer,i.contact,i.description].join(' ').match(/@[A-Za-z0-9_.]{2,30}/g)||[];
  const posted=String(i.source_account||'').split(/\s*(?:,|;|\||&|\band\b|\bx\b)\s*/i);
- const all=[...new Set([...written,...posted].map(clean).filter(ok))];
+ const credited=String(i.credited_accounts||'').split(/[\s,]+/);
+ const all=[...new Set([...credited,...written,...posted].map(clean).filter(ok))];
  return [...all.filter(h=>!shared(h)),...all.filter(shared)].slice(0,4).map(h=>({handle:h,url:'https://www.instagram.com/'+h+'/',shared:shared(h)}));
 }
 export default function Noticeboard({initialItems=[],initialStatus=null,initialParams={},initialLoaded=false}:{initialItems?:Item[];initialStatus?:any;initialParams?:Record<string,string>;initialLoaded?:boolean}){

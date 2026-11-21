@@ -8,14 +8,17 @@ function githubManifest_(){
   sharingTables_();
   if(PropertiesService.getScriptProperties().getProperty('PIPELINE_DIRTY')==='1')refreshEventViews_();
   const all=eligiblePublicRecords_(),seen=new Set(all.map(x=>x.kind+':'+x.record.group_id));
-  const blocked=new Set(vrRows_(PIPE.RAW).filter(r=>r.status===CONFIG.STATUS.REJECTED||['research','trash','not_local','place'].includes(r.match_status)).map(r=>String(r.group_id)));
+  const raw=vrRows_(PIPE.RAW),credited={};
+  // Accounts each listing's screenshots credit as the maker, gathered from all its rows (2026-11-21).
+  raw.forEach(r=>{const list=companionClues_(r).credited_accounts;if(Array.isArray(list)&&list.length){const g=String(r.group_id);credited[g]=credited[g]||[];list.forEach(h=>{if(!credited[g].includes(h))credited[g].push(h);});}});
+  const blocked=new Set(raw.filter(r=>r.status===CONFIG.STATUS.REJECTED||['research','trash','not_local','place'].includes(r.match_status)).map(r=>String(r.group_id)));
   const reviews=vrRows_(PIPE.REVIEW).filter(r=>!isPublicationReviewRow_(r));reviews.forEach(r=>{blocked.add(String(r.group_id));if(r.suggested_group_id)blocked.add(String(r.suggested_group_id));});
   visualEventRows_().filter(r=>isPast_(r)&&!blocked.has(String(r.group_id))&&!publicationProblem_(r,'event')).forEach(r=>{if(!seen.has('event:'+r.group_id))all.push({record:r,kind:'event'});});
   const items=[];let held=0;
   all.forEach(x=>{
    const main=cropRow_(String(x.record.original_image_file_id));if(!main||!['ready','skip'].includes(main.crop_status)){held++;return;}
    const images=sourcesForGroup_(x.record.group_id,x.record.original_image_file_id).map(image=>{const crop=cropRow_(image.fileId);return crop&&crop.crop_status==='ready'?{fileId:image.fileId,crop:publicCropBox_(crop)}:null;}).filter(Boolean).slice(0,50);
-   const item=publicListing_(x.record,x.kind);item.publication_hash=githubPublicationHash_(x.record,x.kind);item.published_at=vrString_(x.record.updated_at||x.record.saved_at||x.record.processed_at,'updated_at')||new Date().toISOString();items.push({item: item,images:images});
+   const item=publicListing_(x.record,x.kind);item.credited_accounts=(credited[String(x.record.group_id)]||[]).slice(0,6).join(', ');item.publication_hash=githubPublicationHash_(x.record,x.kind);item.published_at=vrString_(x.record.updated_at||x.record.saved_at||x.record.processed_at,'updated_at')||new Date().toISOString();items.push({item: item,images:images});
   });
   // Tickets and derived timestamps must not destabilize the snapshot version.
   const version=digestKey_(JSON.stringify(items.map(x=>({item:Object.assign({},x.item,{published_at:'',last_checked:''}),images:x.images}))));

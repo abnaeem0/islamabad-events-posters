@@ -15,6 +15,7 @@ function extractEventFromPoster_(blob, filename, companionBlobs) {
     'Set listing_kind to event, place, course, recurring, ad, partial or unknown. A gym/riding club/attraction/day-trip destination without a specific dated session is a place; a dated session at that business is an event. Never fabricate dates for places.',
     'Record visible_text (a short literal excerpt of the text for this item, maximum 3000 characters). Also return page_text once at the top level: ALL readable text of the main post, in reading order, including the full caption, without summarising or leaving anything out (ignore app buttons and menus), visible Instagram handles, any event-specific booking link/reference, and visible carousel_index/carousel_total. Use null for absent carousel numbers. Do not confuse capture/upload dates with event dates.',
     'Also return, once at the top level: post_account = the Instagram handle of the account that posted this post (shown in the profile bar or at the start of the caption), or null; caption_start = the first 15 words of the caption that account wrote under the post (not text inside the image), copied exactly in their original language, or null if no caption is visible.',
+    'For each item, credited_accounts = the Instagram handles that THIS post itself names as making, organising, hosting or running this item: caption or poster text such as "by @x", "organised by @x", "hosted at @x", "in collaboration with @x", "repost from @x", "credit @x", or the accounts in a collab header. Include the posting account only when it is itself credited, or when it is clearly the organiser posting its own event. Use only the main post; never handles from comments, suggested posts or neighbouring posts. Copy handles exactly without the @. Return an empty list if none is credited.',
     'When several screenshots are supplied, read them as one confirmed post. Return EVERY distinct workshop/event, even when the images share design or venue. An overview slide and detail slide for the same session are one item. Apply a clearly shared venue/address/contact to all relevant workshops unless separate locations are shown. Preserve distinct dates, times, prices and titles. Missing fields stay null.',
     'promotion_end_date is the explicit expiry/deadline of an offer, YYYY-MM-DD, or null. Never invent a 90-day validity or treat the screenshot date as an offer deadline. Courses and recurring activities without a specific dated session are not missing-date events.',
     'Set intake_route to listing for ANY recognizable third-party public event poster, ad, course, recurring activity or place promotion, even if date, venue or many other details are missing. Do not park recognizable promotional material in research. Use research for personal/unrelated screenshots, notes, or fragments with too little evidence to identify a public listing; use listing_kind partial or unknown in that case. Include a short intake_reason. Preserve text even when it is not an event.',
@@ -101,6 +102,7 @@ function getSingleEventSchema_() {
       place_type:{type:'STRING',enum:['activity','experience','course','recurring_event','attraction','day_trip','restaurant']},
       visible_text:{type:'STRING',nullable:true},
       visible_handles:{type:'ARRAY',items:{type:'STRING'}},
+      credited_accounts:{type:'ARRAY',items:{type:'STRING'}},
       booking_reference:{type:'STRING',nullable:true},
       carousel_index:{type:'INTEGER',nullable:true},
       carousel_total:{type:'INTEGER',nullable:true},
@@ -133,7 +135,7 @@ function getSingleEventSchema_() {
       extraction_notes: { type: 'STRING', nullable: true }
     },
     required: [
-      'intake_route','intake_reason','promotion_end_date','listing_kind','place_type','visible_text','visible_handles','booking_reference','carousel_index','carousel_total',
+      'intake_route','intake_reason','promotion_end_date','listing_kind','place_type','visible_text','visible_handles','credited_accounts','booking_reference','carousel_index','carousel_total',
       'title',
       'start_date',
       'end_date',
@@ -173,7 +175,7 @@ function normalizeExtraction_(x) {
       listing_kind:['event','place','course','recurring','ad','partial','unknown'].indexOf(x.listing_kind)>=0?x.listing_kind:'unknown',
       place_type:['activity','experience','course','recurring_event','attraction','day_trip','restaurant'].indexOf(x.place_type)>=0?x.place_type:'activity',
       visible_text:truncate_(cleanNullable_(x.visible_text)||'',3000),
-      visible_handles:cleanArray_(x.visible_handles),booking_reference:cleanNullable_(x.booking_reference),
+      visible_handles:cleanArray_(x.visible_handles),credited_accounts:creditedAccounts_(x.credited_accounts),booking_reference:cleanNullable_(x.booking_reference),
       carousel_index:Number.isInteger(x.carousel_index)&&x.carousel_index>0?x.carousel_index:null,
       carousel_total:Number.isInteger(x.carousel_total)&&x.carousel_total>0?x.carousel_total:null
     },
@@ -229,4 +231,11 @@ function geminiRequest_(model,payload){
 function parseGeminiJson_(text){
   const clean=String(text).trim().replace(/^```(?:json)?\s*/i,'').replace(/\s*```$/,'');
   try{return JSON.parse(clean);}catch(e){throw new Error('Gemini output could not be parsed as JSON.');}
+}
+
+// Accounts the post itself credits as the maker (2026-11-21). The website links these first, because the
+// maker's own page has the most current details; repost pages are linked after them.
+function creditedAccounts_(value){
+  const seen={};return (Array.isArray(value)?value:[]).map(function(h){return String(h||'').trim().replace(/^@/,'').replace(/\.+$/,'').toLowerCase();})
+    .filter(function(h){if(!/^[a-z0-9_.]{2,30}$/.test(h)||/^\d+$/.test(h)||seen[h])return false;seen[h]=true;return true;}).slice(0,6);
 }
