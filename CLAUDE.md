@@ -85,7 +85,7 @@ Flow: phone screenshot -> Google Drive inbox -> Apps Script + Gemini -> Google S
 
 **Tests** (all currently pass)
 - `tests/*.cjs`: Apps Script logic, using a fake Google environment in `tests/harness.cjs`. Run each with `node tests/<name>.cjs`.
-- `scripts/*.test.mjs`: export, site, event-phase, Instagram-link and review-page checks (`review-page.test.mjs` fails if `review/index.html` is out of date). `npm test` runs `scripts/site.test.mjs`, `scripts/event-phase.test.mjs` and `scripts/instagram-links.test.mjs`.
+- `scripts/*.test.mjs`: export, site, event-phase, Instagram-link, WhatsApp-contact and review-page checks (`review-page.test.mjs` fails if `review/index.html` is out of date). `npm test` runs `scripts/site.test.mjs`, `scripts/event-phase.test.mjs`, `scripts/instagram-links.test.mjs` and `scripts/whatsapp-contact.test.mjs`.
 
 **Other**
 - `README.md` is out of date. `samples/sample-event.json` is not used by any test.
