@@ -1,6 +1,6 @@
 # PLAN.md
 
-Last updated: 2026-11-01. This is the only plan file: priorities, later work, bugs, decisions and open questions all live here. Update it in every commit. Within each section, hard-to-undo and foundational items come first.
+Last updated: 2026-11-21. This is the only plan file: priorities, later work, bugs, decisions and open questions all live here. Update it in every commit. Within each section, hard-to-undo and foundational items come first.
 
 Background: the Claude doc "Islamabad Events: Crop, Category and Workflow Plan" (https://claude.ai/artifact/MRqKvJqzCzcGwifQGEkg5m) holds the longer early discussion and the V1 prompt text. It is no longer updated; this file is the source of truth. Once `Prompts.gs` exists, the prompts live there. The "Islamabad Out & About: Requirements" doc has not been seen.
 
@@ -65,6 +65,8 @@ Build one small piece at a time. Nothing below is started.
 
 **Public site**
 - [x] Long events no longer fill the top of Upcoming (2026-11-16, my request). Once a multi-day event has started, trips, hikes, camps, retreats, workshops, courses and anything of unclear type move to Past events, because you can only join them on day one. Drop-in events (festival, exhibition, market, fair, bazaar, mela, expo) stay until their last day, shown as "On now · until …" below the events starting today. Decided from the title and categories in `eventPhase` (`src/Noticeboard.tsx`); test in `scripts/event-phase.test.mjs` (now part of `npm test`).
+- [x] Link the account that made the event, not the page that reshared it (2026-11-21, my request: Visitopia and Events Finder post so much that the event is hard to find on their page). The listing page now shows one Instagram button per account: handles written in the organizer, contact or description first, then the posting account. Repost pages (any handle containing `visitopia` or `eventsfinder`/`events.finder`) go last, labelled "Shared by @…". When unsure, all candidates are shown (at most 4). Buttons now show the handle instead of "Organizer on Instagram". Website only (`instagramLinks` in `src/Noticeboard.tsx`), so it applies to existing listings at the next build. Test: `scripts/instagram-links.test.mjs` (in `npm test`). Add other repost pages to the `reposter` pattern when they turn up.
+- [ ] Next piece for the above: many reposts name the organizer only in the caption tags, which reach `visible_handles` but not the website. Either export `visible_handles` with the listing, or ask Gemini for `original_account` (the account credited as the maker, not the poster). Touches `apps-script/`, so it goes live in the Apps Script project.
 - [ ] A weekend board: events first, then things to do. "Dates to be confirmed" strip, collapsed, below Upcoming.
 - [ ] Things to do: activity chips (hiking, cycling, swimming) that also filter events; a place card lists the upcoming events held there; an offer shows as a limited-time note on its place card; products carry a "to buy" tag.
 - [ ] Map, and a shortlist around my location (after the multi-sector filter).
@@ -139,6 +141,7 @@ Draft of the value paragraph for the prompt:
 - Titles are escaped by `scriptJson_` before going into dialogs. Not every dialog was checked.
 
 ## Decisions
+- **2026-11-21: Link the maker, and show several links when unsure.** A repost page is never the only link if any other handle is known, and it is always labelled "Shared by". A wrong single link is worse than two honest ones.
 - **2026-11-16: Carousel slides link automatically only on a strict match** (same account, same caption opening, within 30 minutes, no date conflict). Anything less goes through the normal matching and review, so a wrong merge is unlikely; a missed link just leaves a separate listing I can link by hand.
 - **2026-11-16: A started multi-day event is past unless it is clearly drop-in.** Trip words win over drop-in words ("festival trip to Chitral" is a trip). Unclear types count as trips: hiding one early beats sending someone to a trip that has left.
 - **2026-11-16: Crops are top-to-bottom only, and a blank image beats a held listing.** Sides are always kept. When there is no clear poster, or the AI is unsure, the listing goes up with details only. I can still draw a manual crop, which is never overwritten.
