@@ -75,10 +75,13 @@ function localSlideCandidates_(payload){
  if(!source)throw new Error('This entry has no source screenshot to link slides to.');
  const groupId=String(source.group_id),mainId=String(source.original_image_file_id||'');
  const mainFile=DriveApp.getFileById(mainId),moment=screenshotMoment_(source)||mainFile.getDateCreated().getTime();
- const created=mainFile.getDateCreated().getTime(),fmt=t=>Utilities.formatDate(new Date(t),'UTC',"yyyy-MM-dd'T'HH:mm:ss");
  // Uploads land after capture, often in one burst: search a wide upload window, then keep screenshots taken near this one.
- const q="'"+getSettings_().inboxFolderId+"' in parents and trashed = false and createdDate > '"+fmt(created-12*3600000)+"' and createdDate < '"+fmt(created+12*3600000)+"'";
- const it=DriveApp.searchFiles(q),files=[];
+ // DriveApp search uses the Drive v2 query words: modifiedDate, not createdDate (that one is refused as an invalid "q").
+ const uploaded=mainFile.getLastUpdated().getTime(),fmt=t=>Utilities.formatDate(new Date(t),'UTC',"yyyy-MM-dd'T'HH:mm:ss");
+ const folderId=getSettings_().inboxFolderId;
+ const q="'"+folderId+"' in parents and trashed = false and modifiedDate > '"+fmt(uploaded-12*3600000)+"' and modifiedDate < '"+fmt(uploaded+12*3600000)+"'";
+ let it;try{it=DriveApp.searchFiles(q);}catch(e){console.warn('Slide search fell back to the whole inbox: '+e.message);it=DriveApp.getFolderById(folderId).getFiles();}
+ const files=[];
  while(it.hasNext()){const f=it.next();if(!isSupportedImage_(f))continue;const m=screenshotFileMoment_(f);if(Math.abs(m-moment)<=SLIDE_WINDOW_MS||f.getId()===mainId)files.push({file:f,moment:m});}
  files.sort((a,b)=>a.moment-b.moment||a.file.getName().localeCompare(b.file.getName()));
  const titleOf=gid=>{const r=rows.find(x=>String(x.group_id)===String(gid));return r?String(r.title||'Untitled'):'another listing';};
