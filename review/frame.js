@@ -105,7 +105,7 @@ function lrRenderGrouping(){
  const r=lrGrouping;
  const head=lrEl('div',{class:'gc-head'},
   lrEl('h3',{text:'Grouping check — dry run, nothing changes'}),
-  lrEl('p',{text:'Last '+r.days+' days: '+r.screenshots+' screenshots, '+r.withCaptionKey+' with a readable @account and caption. The rule (same app, same @account, same first 8 caption words, each within 30 minutes of the last) would make '+r.posts+' posts from '+r.screenshotsGrouped+' screenshots. '+r.alreadyOneListing+' of those are already one listing today.'}),
+  lrEl('p',{text:'Last '+r.days+' days: '+r.screenshots+' screenshots, '+r.withCaptionKey+' with a readable @account and caption. The rule (same app, same @account, same first 8 caption words, each within 30 minutes of the last) would make '+r.posts+(r.posts===1?' post':' posts')+' from '+r.screenshotsGrouped+' screenshots. '+r.alreadyOneListing+' of those are already one listing today.'}),
   lrEl('p',{class:'note',text:'Check each group: are these really one post? Wrong groups and missed ones are what I need to hear about.'}),
   lrEl('button',{type:'button',class:'plain',text:'Check again',onclick:()=>{lrGrouping=null;lrRenderGrouping();}}));
  const card=(g,maybe)=>lrEl('div',{class:'gc-card'+(maybe?' maybe':'')},

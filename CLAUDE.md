@@ -54,6 +54,7 @@ Flow: phone screenshot -> Google Drive inbox -> Apps Script + Gemini -> Google S
 - `apps-script/Screenshots.gs`: groups consecutive screenshots (not called by `processInbox` today).
 - `apps-script/Research.gs`: on-demand Google Search lookup for missing details. Probably does not work on a free key; untested.
 - `apps-script/SlideReading.gs`: reads all linked slides of a listing together as ONE listing (never split into events or days); suggests missing details and flags clear mistakes (same suggestion format and cache tab as Research). Called from the review page; capped at 20 calls a day. Linked slides carry a `slide_of_post` clue so the rebuild never copies their own details into the listing.
+- `apps-script/PostGroups.gs`: stage 2 of staged processing (group screenshots into posts by app, @account, caption opening and capture time). Dry run only for now: the review page's "Grouping check" shows the groups it would make; changes nothing.
 - `apps-script/Sharing.gs`: crop suggestion prompt, crop storage, legacy publishing, WhatsApp captions.
 
 **Matching and cleanup**
