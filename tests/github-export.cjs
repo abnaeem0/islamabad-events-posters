@@ -119,3 +119,22 @@ console.log('PASS: review page token is separate, lists work, opens and saves th
  h.props.set('REVIEW_ACTIVE_UNTIL',String(Date.now()-1));assert(!run('reviewActive_()'));
  console.log('PASS: batched opens for prefetch; inbox rebuild waits while I review.');
 }
+{
+ // Grouping dry run: same @account + caption opening, close in time => one post; nothing changes.
+ const cap='Join us for a sunrise hike on Trail 5 this Sunday with tea after';
+ const mk=(id,name,acct,caption,bytes)=>{const f=h.file(id,bytes);f.getName=()=>name;context.gf=f;context.geminiRequest_=()=>({text:JSON.stringify({events:[{listing_kind:'event',title:'Slide '+id,start_date:'2099-12-28',venue:'Trail 5',confidence:'high',uncertain_fields:[]}]})});run('processOneFile_(gf)');
+  run("(function(){const r=vrRows_(PIPE.RAW).find(x=>x.original_image_file_id==="+JSON.stringify(id)+");const c=companionClues_(r);c.post_account="+JSON.stringify(acct)+";c.caption_start="+JSON.stringify(caption)+";vrUpdateRow_(PIPE.RAW,r._row,{companion_clues:JSON.stringify(c),original_filename:"+JSON.stringify(name)+",group_id:'E_'+r.id,match_status:'separate'});})()");};
+ const today=new Date(),stamp=(m)=>{const d=new Date(today.getTime()-3600000+m*60000);const p=n=>String(n).padStart(2,'0');return d.getFullYear()+p(d.getMonth()+1)+p(d.getDate())+'_'+p(d.getHours())+p(d.getMinutes())+p(d.getSeconds());};
+ mk('g1','Screenshot_'+stamp(0)+'_Instagram.jpg','@hikers.isb',cap,[31,1]);
+ mk('g2','Screenshot_'+stamp(1)+'_Instagram.jpg','hikers.isb',cap,[32,1]);
+ mk('g3','Screenshot_'+stamp(2)+'_Instagram.jpg','hikers.isb',cap+' and more',[33,1]);
+ mk('g4','Screenshot_'+stamp(3)+'_Instagram.jpg','other.page','A completely different caption about a pottery class this weekend',[34,1]);
+ mk('g5','Screenshot_'+stamp(70)+'_Instagram.jpg','hikers.isb',cap,[35,1]);
+ const before=JSON.stringify(run('vrRows_(PIPE.RAW).map(r=>[r.id,r.group_id])'));
+ const dry=review('grouping');assert(dry.ok,dry.error);
+ const g=dry.result.groups.find(x=>x.files.some(f=>f.fileId==='g1'));
+ assert(g,'g1 is grouped');assert.deepEqual(g.files.map(f=>f.fileId),['g1','g2','g3'],'same account + caption within 30 min; g5 is 70 minutes later, g4 another account');
+ assert.equal(g.listingsNow.length,3,'today these are three separate listings');
+ assert.equal(JSON.stringify(run('vrRows_(PIPE.RAW).map(r=>[r.id,r.group_id])')),before,'dry run changes nothing');
+ console.log('PASS: grouping dry run finds one post from three slides and changes nothing.');
+}

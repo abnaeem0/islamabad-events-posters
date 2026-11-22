@@ -67,6 +67,13 @@
 #lr-dialog .posters{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
 #lr-dialog.single .posters,.single #lr-dialog .posters{grid-template-columns:minmax(0,1fr)}
 #lr-slides .lr-how{width:150px;font-size:11px;margin-top:4px}
+/* Grouping check */
+#lr-grouping{padding:12px 16px;border-bottom:1px solid #dde2e8;background:#fff;font:13px system-ui,Arial,sans-serif;max-height:70vh;overflow:auto}
+#lr-grouping h3{margin:0 0 6px}#lr-grouping h4{margin:16px 0 6px;color:#65717f}
+.gc-card{border:1px solid #dde2e8;border-radius:8px;padding:8px 10px;margin:8px 0}.gc-card.maybe{border-style:dashed}
+.gc-meta .note{margin-top:2px}.gc-row{display:flex;gap:8px;overflow-x:auto;padding-top:6px}
+.gc-row img{height:200px;border:1px solid #dde2e8;border-radius:6px;cursor:zoom-in}
+.gc-missing{display:inline-flex;align-items:center;height:200px;width:120px;border:1px dashed #ccc;border-radius:6px;padding:6px;font-size:11px;word-break:break-all}
 /* Review dialog (generated from apps-script/ReviewDialog.html) */
 
 *{box-sizing:border-box}[hidden]{display:none!important}body{font-family:Arial,sans-serif;color:#1d2936;margin:0;background:#fafbfc}h2{font-size:19px;margin:0 0 6px}.muted{color:#65717f;font-size:12px}.posters{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px}.poster{background:white;border:1px solid #ddd;padding:10px;border-radius:8px}.poster img{display:block;height:50vh;max-width:100%;margin:auto;object-fit:contain;cursor:zoom-in}.poster a{font-size:12px}.poster-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}.poster-foot{display:flex;gap:12px;align-items:center;margin-top:8px}.fields{margin-top:14px;border:1px solid #ddd;background:white}.field{display:grid;grid-template-columns:130px 1fr 1fr 1.15fr;gap:9px;align-items:center;padding:7px 10px;border-bottom:1px solid #eee}.field.changed{background:#fff9e8}.field label{font-weight:bold;font-size:12px}.field button{font-size:12px;text-align:left;overflow-wrap:anywhere;background:white;border:1px solid #ddd;border-radius:4px;padding:8px;cursor:pointer;white-space:pre-wrap}.field button.chosen{border:2px solid #2670ac;background:#edf6ff}.field input,.field textarea{width:100%;padding:8px;border:1px solid #ccc;border-radius:4px;font:13px Arial}.field textarea{min-height:60px;resize:vertical}.actions{position:sticky;bottom:0;background:#fafbfc;padding:12px 0;border-top:1px solid #ccc;display:flex;align-items:center;gap:8px;flex-wrap:wrap}button{cursor:pointer;padding:7px 10px}button.primary{background:#145c97;color:white;border:0;padding:12px 20px;border-radius:5px}select{padding:10px;max-width:100%}#status{font-size:13px;color:#585858}.loading{height:50vh;display:grid;place-items:center;color:#65717f;font-size:13px}.single .posters{grid-template-columns:1fr}.single .field{grid-template-columns:140px 1fr 1.2fr}.single .incoming-value{display:none}#evidence{margin-top:10px;white-space:pre-wrap}.zoom{position:fixed;inset:0;background:#15212a;z-index:100;display:flex;flex-direction:column}.zoom[hidden]{display:none}.zoom-tools{display:flex;align-items:center;gap:8px;padding:10px;color:white;background:#20313e}.zoom-tools span{margin-right:auto;font-size:13px}.zoom-view{flex:1;overflow:auto;padding:12px;cursor:grab;touch-action:pan-x pan-y}.zoom-view.dragging{cursor:grabbing}.zoom-view img{display:block;max-width:none;max-height:none;margin:auto;user-select:none}.research-box{margin:12px 0;padding:12px;border:1px solid #d6e1eb;border-radius:6px;background:#f1f7fc}.research-item{border-top:1px solid #d6e1eb;padding:10px 0;white-space:pre-wrap}.research-item a{margin-right:12px;font-size:12px}.source-row{padding:7px 0;display:flex;align-items:center;gap:10px}.source-row span{overflow-wrap:anywhere;font-size:12px}.draft textarea{width:100%;min-height:140px;padding:10px}.research-box iframe{width:100%;height:150px;border:0;background:white}.zoom-open:disabled{cursor:default;opacity:.45}#posterChoice{max-width:300px}
@@ -287,8 +294,42 @@ function lrShowSettings(message){
 function lrRenderTabs(){
  const host=document.getElementById('lr-tabs');host.replaceChildren();
  LR_TABS.forEach(([id,label])=>host.append(lrEl('button',{class:'tab'+(lrSettings.tab===id?' on':''),onclick:()=>lrSwitch(id)},label+' ('+((lrQueues&&lrQueues[id])||[]).length+')')));
+ host.append(lrEl('button',{class:'tab'+(lrGroupOpen?' on':''),title:'Dry run: which screenshots would be grouped into one post before extraction. Changes nothing.',onclick:()=>{lrGroupOpen=!lrGroupOpen;lrRenderTabs();lrRenderGrouping();}},'Grouping check'));
  if(lrSuggestions)host.append(lrEl('button',{class:'tab'+(lrSuggestOpen?' on':''),onclick:()=>{lrSuggestOpen=!lrSuggestOpen;lrRenderTabs();lrRenderSuggestions();}},'Suggestions ('+lrSuggestions.length+')'));
  document.getElementById('lr-loaded').textContent=lrLoadedAt?'List loaded '+lrLoadedAt:'';
+}
+// ---- Grouping check (dry run of staged processing, step 2) ----
+// Shows the posts the grouping rule would make from recent screenshots, next to how they are listed today.
+// Read only: nothing changes and no Gemini calls are made.
+let lrGroupOpen=false,lrGrouping=null,lrGroupingLoading=false;
+function lrRenderGrouping(){
+ let box=document.getElementById('lr-grouping');
+ if(!box){box=lrEl('section',{id:'lr-grouping'});document.getElementById('lr-failures').after(box);}
+ box.hidden=!lrGroupOpen;if(box.hidden)return;
+ if(!lrGrouping){
+  box.replaceChildren(lrEl('p',{class:'note',text:lrGroupingLoading?'Working out groups…':''}));
+  if(!lrGroupingLoading){lrGroupingLoading=true;box.firstChild.textContent='Working out groups…';
+   lrCall('grouping',[]).then(r=>{lrGrouping=r;},e=>{lrGrouping={error:/Unknown review call/.test(e.message)?'Publish a new Web App version first (Deploy → Manage deployments → New version).':e.message};}).finally(()=>{lrGroupingLoading=false;lrRenderGrouping();});}
+  return;
+ }
+ if(lrGrouping.error){box.replaceChildren(lrEl('p',{class:'lr-err',text:lrGrouping.error}));return;}
+ const r=lrGrouping;
+ const head=lrEl('div',{class:'gc-head'},
+  lrEl('h3',{text:'Grouping check — dry run, nothing changes'}),
+  lrEl('p',{text:'Last '+r.days+' days: '+r.screenshots+' screenshots, '+r.withCaptionKey+' with a readable @account and caption. The rule (same app, same @account, same first 8 caption words, each within 30 minutes of the last) would make '+r.posts+' posts from '+r.screenshotsGrouped+' screenshots. '+r.alreadyOneListing+' of those are already one listing today.'}),
+  lrEl('p',{class:'note',text:'Check each group: are these really one post? Wrong groups and missed ones are what I need to hear about.'}),
+  lrEl('button',{type:'button',class:'plain',text:'Check again',onclick:()=>{lrGrouping=null;lrRenderGrouping();}}));
+ const card=(g,maybe)=>lrEl('div',{class:'gc-card'+(maybe?' maybe':'')},
+  lrEl('div',{class:'gc-meta'},lrEl('b',{text:'@'+g.account}),' · '+new Date(g.first).toLocaleString()+' · '+g.files.length+' screenshots · '+g.rule,
+   g.caption?lrEl('div',{class:'note',text:'“'+g.caption+'”'}):null,
+   lrEl('div',{class:'note',text:g.listingsNow.length<=1?'Today: already one listing'+(g.listingsNow[0]?' ('+g.listingsNow[0].title+')':'')+'.':'Today: '+g.listingsNow.length+' separate listings — '+g.listingsNow.map(l=>l.title).join(' · ')}),
+   g.multiListingScreenshot?lrEl('div',{class:'note',text:'Includes a screenshot that gave several listings (a multi-event poster).'}):null),
+  lrEl('div',{class:'gc-row'},g.files.map(f=>{const img=lrEl('img',{src:localFileUrl(f.name),alt:f.name,title:f.name,loading:'lazy'});
+   img.addEventListener('error',()=>img.replaceWith(lrEl('a',{class:'gc-missing',href:f.link,target:'_blank',text:f.name})));
+   img.addEventListener('click',()=>{if(typeof $==='function'){lastFocus=img;$('zoom').hidden=false;$('zoomImg').onload=fitZoom;$('zoomImg').src=img.src;}});
+   return img;})));
+ box.replaceChildren(head,...r.groups.map(g=>card(g,false)),
+  r.maybes.length?lrEl('h4',{text:'Not grouped — weaker matches (same @account, no caption read, taken within 3 minutes)'}):null,...r.maybes.map(g=>card(g,true)));
 }
 // ---- Suggestions sent from the website ("Suggest a change") ----
 // Shown in their own panel above the review work. Open the listing, fix it in the review as usual, then mark it done.

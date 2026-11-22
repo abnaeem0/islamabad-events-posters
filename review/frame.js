@@ -83,8 +83,42 @@ function lrShowSettings(message){
 function lrRenderTabs(){
  const host=document.getElementById('lr-tabs');host.replaceChildren();
  LR_TABS.forEach(([id,label])=>host.append(lrEl('button',{class:'tab'+(lrSettings.tab===id?' on':''),onclick:()=>lrSwitch(id)},label+' ('+((lrQueues&&lrQueues[id])||[]).length+')')));
+ host.append(lrEl('button',{class:'tab'+(lrGroupOpen?' on':''),title:'Dry run: which screenshots would be grouped into one post before extraction. Changes nothing.',onclick:()=>{lrGroupOpen=!lrGroupOpen;lrRenderTabs();lrRenderGrouping();}},'Grouping check'));
  if(lrSuggestions)host.append(lrEl('button',{class:'tab'+(lrSuggestOpen?' on':''),onclick:()=>{lrSuggestOpen=!lrSuggestOpen;lrRenderTabs();lrRenderSuggestions();}},'Suggestions ('+lrSuggestions.length+')'));
  document.getElementById('lr-loaded').textContent=lrLoadedAt?'List loaded '+lrLoadedAt:'';
+}
+// ---- Grouping check (dry run of staged processing, step 2) ----
+// Shows the posts the grouping rule would make from recent screenshots, next to how they are listed today.
+// Read only: nothing changes and no Gemini calls are made.
+let lrGroupOpen=false,lrGrouping=null,lrGroupingLoading=false;
+function lrRenderGrouping(){
+ let box=document.getElementById('lr-grouping');
+ if(!box){box=lrEl('section',{id:'lr-grouping'});document.getElementById('lr-failures').after(box);}
+ box.hidden=!lrGroupOpen;if(box.hidden)return;
+ if(!lrGrouping){
+  box.replaceChildren(lrEl('p',{class:'note',text:lrGroupingLoading?'Working out groups…':''}));
+  if(!lrGroupingLoading){lrGroupingLoading=true;box.firstChild.textContent='Working out groups…';
+   lrCall('grouping',[]).then(r=>{lrGrouping=r;},e=>{lrGrouping={error:/Unknown review call/.test(e.message)?'Publish a new Web App version first (Deploy → Manage deployments → New version).':e.message};}).finally(()=>{lrGroupingLoading=false;lrRenderGrouping();});}
+  return;
+ }
+ if(lrGrouping.error){box.replaceChildren(lrEl('p',{class:'lr-err',text:lrGrouping.error}));return;}
+ const r=lrGrouping;
+ const head=lrEl('div',{class:'gc-head'},
+  lrEl('h3',{text:'Grouping check — dry run, nothing changes'}),
+  lrEl('p',{text:'Last '+r.days+' days: '+r.screenshots+' screenshots, '+r.withCaptionKey+' with a readable @account and caption. The rule (same app, same @account, same first 8 caption words, each within 30 minutes of the last) would make '+r.posts+' posts from '+r.screenshotsGrouped+' screenshots. '+r.alreadyOneListing+' of those are already one listing today.'}),
+  lrEl('p',{class:'note',text:'Check each group: are these really one post? Wrong groups and missed ones are what I need to hear about.'}),
+  lrEl('button',{type:'button',class:'plain',text:'Check again',onclick:()=>{lrGrouping=null;lrRenderGrouping();}}));
+ const card=(g,maybe)=>lrEl('div',{class:'gc-card'+(maybe?' maybe':'')},
+  lrEl('div',{class:'gc-meta'},lrEl('b',{text:'@'+g.account}),' · '+new Date(g.first).toLocaleString()+' · '+g.files.length+' screenshots · '+g.rule,
+   g.caption?lrEl('div',{class:'note',text:'“'+g.caption+'”'}):null,
+   lrEl('div',{class:'note',text:g.listingsNow.length<=1?'Today: already one listing'+(g.listingsNow[0]?' ('+g.listingsNow[0].title+')':'')+'.':'Today: '+g.listingsNow.length+' separate listings — '+g.listingsNow.map(l=>l.title).join(' · ')}),
+   g.multiListingScreenshot?lrEl('div',{class:'note',text:'Includes a screenshot that gave several listings (a multi-event poster).'}):null),
+  lrEl('div',{class:'gc-row'},g.files.map(f=>{const img=lrEl('img',{src:localFileUrl(f.name),alt:f.name,title:f.name,loading:'lazy'});
+   img.addEventListener('error',()=>img.replaceWith(lrEl('a',{class:'gc-missing',href:f.link,target:'_blank',text:f.name})));
+   img.addEventListener('click',()=>{if(typeof $==='function'){lastFocus=img;$('zoom').hidden=false;$('zoomImg').onload=fitZoom;$('zoomImg').src=img.src;}});
+   return img;})));
+ box.replaceChildren(head,...r.groups.map(g=>card(g,false)),
+  r.maybes.length?lrEl('h4',{text:'Not grouped — weaker matches (same @account, no caption read, taken within 3 minutes)'}):null,...r.maybes.map(g=>card(g,true)));
 }
 // ---- Suggestions sent from the website ("Suggest a change") ----
 // Shown in their own panel above the review work. Open the listing, fix it in the review as usual, then mark it done.

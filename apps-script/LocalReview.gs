@@ -21,6 +21,8 @@ const LOCAL_REVIEW_CALLS={
  // Drive look-ups happen before taking the data lock, so the lock stays short.
  link:payload=>{const metas=localSlideMetas_([].concat((payload&&payload.link)||[],(payload&&payload.support)||[]));return withDataLock_(()=>localLinkSlides_(payload,metas));},
  read_slides:payload=>readLinkedSlides(payload),
+ // Dry run of grouping screenshots into posts before extraction (PostGroups.gs). Read only.
+ grouping:()=>postGroupsDryRun_(),
  // Website suggestions (Suggestions.gs)
  suggestions:()=>({ok:true,items:openSuggestions_()}),
  suggestion_done:payload=>markSuggestionDone_(payload)
