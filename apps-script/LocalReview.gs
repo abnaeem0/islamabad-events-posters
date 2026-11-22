@@ -8,6 +8,8 @@
 const LOCAL_REVIEW_CALLS={
  list:()=>localReviewQueues_(),
  get:context=>getVisualReviewData(context),
+ // Opens the next few entries in one go (prefetch): one request, one lock, each tab read once.
+ get_many:contexts=>localReviewGetMany_(contexts),
  save:payload=>saveVisualDecision(Object.assign({},payload,{deferRefresh:true})),
  research:payload=>researchVisualDetails(payload),
  venue:payload=>researchVenueLocation(payload),
@@ -23,9 +25,17 @@ const LOCAL_REVIEW_CALLS={
  suggestions:()=>({ok:true,items:openSuggestions_()}),
  suggestion_done:payload=>markSuggestionDone_(payload)
 };
+function localReviewGetMany_(contexts){
+ return withDataLock_(()=>{
+  vrRowsMemo_={};
+  try{return (Array.isArray(contexts)?contexts:[]).slice(0,4).map(ctx=>{try{return {ok:true,result:getVisualReviewDataLocked_(ctx)};}catch(e){return {ok:false,error:e.message};}});}
+  finally{vrRowsMemo_=null;}
+ });
+}
 function localReviewCall_(body){
  const fn=LOCAL_REVIEW_CALLS[String(body.fn||'')];
  if(!fn)throw new Error('Unknown review call');
+ markReviewActive_();
  const args=Array.isArray(body.args)?body.args:[];
  return {ok:true,result:fn.apply(null,args)};
 }

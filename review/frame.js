@@ -41,18 +41,22 @@ function lrRunner(ok,fail){return new Proxy({},{get(_,name){
  if(name==='withUserObject')return ()=>lrRunner(ok,fail);
  return (...args)=>{
   const fn=LR_CALLS[name];if(!fn){fail&&fail(new Error('Not available on this page: '+String(name)));return;}
-  if(fn==='get'){const key=lrKey(args[0]);const cached=lrPrefetch.get(key);lrPrefetch.delete(key);(cached||lrCall('get',args)).then(r=>ok&&ok(r),e=>fail&&fail(e));return;}
+  if(fn==='get'){const key=lrKey(args[0]),cached=lrTakePrefetch(key),t0=performance.now();(cached||lrCall('get',args)).then(r=>{lrSpeed('open',t0,!!cached);ok&&ok(r);},e=>fail&&fail(e));return;}
   if(fn==='save'&&lrOptimistic){lrOptimistic=false;lrBackgroundSave(args);ok&&ok({ok:true,destination:'background'});return;}
-  lrCall(fn,args).then(r=>{if(fn==='save')lrMarkDone(args[0]);ok&&ok(r);},e=>fail&&fail(e));
+  const t0=performance.now();lrCall(fn,args).then(r=>{if(fn==='save'){lrMarkDone(args[0]);lrSpeed('save',t0);}ok&&ok(r);},e=>fail&&fail(e));
  };
 }});}
 window.google={script:{run:lrRunner()}};
 
 function lrBackgroundSave(args){
- const entry=queue[queueIndex],title=(data&&data.title)||'Untitled';lrPending++;lrStatus();
- lrCall('save',args).then(()=>{lrMarkDone(args[0]);},e=>{lrFailures.push({entry,title,error:e.message});lrRenderFailures();})
+ const entry=queue[queueIndex],title=(data&&data.title)||'Untitled',t0=performance.now();lrPending++;lrStatus();
+ lrCall('save',args).then(()=>{lrMarkDone(args[0]);lrSpeed('save',t0);},e=>{lrFailures.push({entry,title,error:e.message});lrRenderFailures();})
   .finally(()=>{lrPending--;lrStatus();});
 }
+// How long things take, shown in the top bar so slowness can be pinned down.
+const lrTimes={};
+function lrSpeed(kind,t0,prefetched){const s=(performance.now()-t0)/1000;lrTimes[kind]=kind==='open'&&prefetched&&s<0.3?'instant (fetched ahead)':s.toFixed(1)+' s'+(kind==='open'&&prefetched?' (was still fetching ahead)':'');
+ const el=document.getElementById('lr-speed');if(el)el.textContent=[lrTimes.open?'Last open: '+lrTimes.open:'',lrTimes.save?'last save: '+lrTimes.save:''].filter(Boolean).join(' · ');}
 function lrMarkDone(payload){lrDone.add(lrKey({mode:payload.mode,sourceId:payload.sourceId,groupId:payload.groupId}));lrRenderList();}
 function lrStatus(){const s=document.getElementById('lr-saving');if(s)s.textContent=[lrPending?'Saving '+lrPending+' in the background…':'',lrBusyCount?'The Sheet is busy rebuilding; waiting…':''].filter(Boolean).join(' · ');}
 function lrRenderFailures(){
@@ -122,11 +126,21 @@ function lrSwitch(tab){
  if(!lrStarted){window.REVIEW_CONTEXT=Object.assign({queue:items.slice()},items[start]);lrStartDialog();return;}
  queue.splice(0,queue.length,...items);queueIndex=start;navigate(0);
 }
+// Fetch the next few entries in one request, so moving on is instant. Prefetched copies older than
+// 5 minutes are not used; a save that conflicts with one is refused by the Sheet anyway.
+const LR_PREFETCH_AHEAD=3,LR_PREFETCH_MAX_AGE=5*60000,lrPrefetchAt=new Map();
+function lrTakePrefetch(key){const p=lrPrefetch.get(key),at=lrPrefetchAt.get(key)||0;lrPrefetch.delete(key);lrPrefetchAt.delete(key);return p&&Date.now()-at<LR_PREFETCH_MAX_AGE?p:null;}
 function lrPrefetchNext(){
- if(typeof queue==='undefined')return;const next=queue[queueIndex+1];if(!next)return;const key=lrKey(next);
- if(lrPrefetch.has(key)||lrDone.has(key))return;const p=lrCall('get',[next]);p.catch(()=>lrPrefetch.delete(key));lrPrefetch.set(key,p);
- // Warm the browser cache for the next item's screenshots too.
- p.then(d=>(d.sources||[]).forEach(s=>{if(s.label){const im=new Image();im.src=localFileUrl(s.label);}})).catch(()=>{});
+ if(typeof queue==='undefined')return;
+ const wanted=queue.slice(queueIndex+1,queueIndex+1+LR_PREFETCH_AHEAD).filter(q=>{const k=lrKey(q);return !lrPrefetch.has(k)&&!lrDone.has(k);});
+ if(!wanted.length)return;
+ const batch=lrCall('get_many',[wanted]);
+ wanted.forEach((q,i)=>{const key=lrKey(q);
+  const p=batch.then(list=>{const r=list[i];if(!r||!r.ok)throw new Error((r&&r.error)||'Could not open this entry.');return r.result;});
+  p.catch(()=>{lrPrefetch.delete(key);lrPrefetchAt.delete(key);});lrPrefetch.set(key,p);lrPrefetchAt.set(key,Date.now());
+  // Warm the browser cache for that entry's screenshots too.
+  p.then(d=>(d.sources||[]).forEach(s=>{if(s.label){const im=new Image();im.src=localFileUrl(s.label);}})).catch(()=>{});
+ });
 }
 function lrStartDialog(){
  lrStarted=true;const s=document.createElement('script');s.textContent=document.getElementById('lr-dialog-script').textContent;document.body.append(s);
@@ -229,6 +243,9 @@ function lrSetupCompare(){
   img.addEventListener('mouseleave',()=>{lens.hidden=true;});
  });
  window.addEventListener('scroll',()=>{lens.hidden=true;},{passive:true});
+ // Say where each picture came from: this computer (fast) or Google Drive (slow, not synced here yet).
+ ['left','right'].forEach(side=>{const img=document.getElementById(side+'Img'),note=lrEl('div',{class:'lr-src',id:'lr-src-'+side});img.parentElement.after(note);
+  img.addEventListener('load',()=>{const local=img.src.startsWith('file:');note.textContent=local?'From this computer':'From Google Drive (not found in '+lrSettings.folder+'; slower)';note.classList.toggle('slow',!local);});});
  lrApplyView();
 }
 function lrResetCompare(){document.querySelectorAll('#lr-dialog .lr-scroll').forEach(b=>{b.scrollTop=0;b.scrollLeft=0;});const lens=document.getElementById('lr-lens');if(lens)lens.hidden=true;}

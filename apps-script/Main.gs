@@ -44,9 +44,10 @@ function processInbox() {
       }
     } finally {
       deferEventViews_ = false;
-      withDataLock_(function () { if (PropertiesService.getScriptProperties().getProperty('PIPELINE_DIRTY') === '1') refreshEventViews_(); });
+      if (reviewActive_()) console.log('Review in progress on the local page; rebuild postponed.');
+      else withDataLock_(function () { if (PropertiesService.getScriptProperties().getProperty('PIPELINE_DIRTY') === '1') refreshEventViews_(); });
     }
-    if (Date.now() - startedAt < 220000) processCompanions_(startedAt + 260000);
+    if (Date.now() - startedAt < 220000 && !reviewActive_()) processCompanions_(startedAt + 260000);
     console.log('Inbox checked ' + handled + ' screenshots.');
   });
 }

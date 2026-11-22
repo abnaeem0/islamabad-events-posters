@@ -87,3 +87,15 @@ console.log('PASS: review page token is separate, lists work, opens and saves th
  const status=JSON.parse(h.props.get('PUBLIC_SYNC_STATUS'));assert.deepEqual(status.skipped,['event:X "Rise and Ride": Crop too small']);
  console.log('PASS: listings left off by the build are recorded for the Sheet publishing status.');
 }
+{
+ // Prefetch: several entries opened in one request; a bad one does not spoil the rest.
+ const lists=review('list').result.queues,ctxs=lists.upcoming.slice(0,2).concat([{mode:'edit',sourceId:'',groupId:'no-such-group'}]);
+ const many=review('get_many',[ctxs]);assert(many.ok,many.error);
+ assert.equal(many.result.length,3);assert(many.result[0].ok&&many.result[0].result.groupId);assert.equal(many.result[2].ok,false);
+ assert.equal(run('vrRowsMemo_'),null,'read memo is cleared after the batch');
+ // Any review call marks a review session, which postpones the inbox rebuild.
+ assert(run('reviewActive_()'));
+ h.props.set('PIPELINE_DIRTY','1');run('processCompanionsWorker_(Date.now()+1000)');assert.equal(h.props.get('PIPELINE_DIRTY'),'1','no rebuild while reviewing');
+ h.props.set('REVIEW_ACTIVE_UNTIL',String(Date.now()-1));assert(!run('reviewActive_()'));
+ console.log('PASS: batched opens for prefetch; inbox rebuild waits while I review.');
+}

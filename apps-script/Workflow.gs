@@ -24,6 +24,15 @@ function withJobLease_(name, fn) {
     });
   }
 }
+// While I am reviewing on the local page, the 5-minute inbox run leaves the slow full rebuild (and the
+// companion checks that rebuild) until 10 minutes after my last action, so it does not lock the Sheet under me.
+// The website export still rebuilds when it needs to.
+const REVIEW_QUIET_MS = 10 * 60000;
+function markReviewActive_() {
+  const props = PropertiesService.getScriptProperties(), until = Number(props.getProperty('REVIEW_ACTIVE_UNTIL') || 0);
+  if (until - Date.now() < REVIEW_QUIET_MS - 60000) props.setProperty('REVIEW_ACTIVE_UNTIL', String(Date.now() + REVIEW_QUIET_MS));
+}
+function reviewActive_() { return Number(PropertiesService.getScriptProperties().getProperty('REVIEW_ACTIVE_UNTIL') || 0) > Date.now(); }
 function markPipelineDirty_() { optionalReadCache_ = {}; PropertiesService.getScriptProperties().setProperty('PIPELINE_DIRTY', '1'); }
 let deferEventViews_ = false;
 function refreshIfNeeded_() { markPipelineDirty_(); if (!deferEventViews_) refreshEventViews_(); }

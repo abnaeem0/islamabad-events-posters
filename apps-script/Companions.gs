@@ -97,7 +97,7 @@ function reserveCompanionCall_(){
 }
 function processCompanions_(deadline){return withJobLease_('companions',function(){return processCompanionsWorker_(deadline);});}
 function processCompanionsWorker_(deadline){
-  if(geminiBusyUntil_()>Date.now())return;
+  if(geminiBusyUntil_()>Date.now()||reviewActive_())return;
   withDataLock_(function(){if(PropertiesService.getScriptProperties().getProperty('PIPELINE_DIRTY')==='1')refreshEventViews_();});
   const raw=ensureEventsSheet_(),checks=table_(COMPANION.TAB,COMPANION.HEADERS),done={};
   readObjects_(checks).forEach(function(x){done[String(x.pair_key)]=x;});

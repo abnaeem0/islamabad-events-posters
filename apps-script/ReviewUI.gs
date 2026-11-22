@@ -9,7 +9,13 @@ function onOpen() {
   const share=ui.createMenu('Sharing').addItem('Prepare selected for sharing','openPrepareSharing').addItem('Sync public posters now','syncPublicPosters').addItem('Publishing status','showPublicationStatus').addItem('Audit website publishing','auditWebsitePublishing').addItem('Open public page','openPublicPage').addSeparator().addItem('Connect public page','connectPublicPage');
   ui.createMenu('Events').addItem('Review selected event','openVisualReview').addItem('Move to Places & Activities','moveUncategorized').addItem('Copy to Places & Activities','copyUncategorized').addSubMenu(move).addSubMenu(copy).addItem('Move selected to Research','moveSelectedToResearch').addItem('Return selected from Research','returnSelectedFromResearch').addItem('Move selected back to Events','returnSelectedToEvents').addItem('Set selected venue / address','openBulkLocation').addSubMenu(share).addSeparator().addItem('Remove selected to Trash','removeSelectedEntries').addItem('Restore selected Trash entries','restoreSelectedTrash').addSeparator().addItem('Check companion screenshots now','processCompanions').addItem('Refresh event views','refreshEventViews').addItem('Fix date and time display','fixEventDateTimeDisplay').addToUi();
 }
+// Inside one batch of read-only review opens, each tab is read once (see localReviewGetMany_).
+let vrRowsMemo_=null;
 function vrRows_(tab){
+  if(vrRowsMemo_){if(!vrRowsMemo_[tab])vrRowsMemo_[tab]=vrRowsRead_(tab);return vrRowsMemo_[tab].map(r=>Object.assign({},r));}
+  return vrRowsRead_(tab);
+}
+function vrRowsRead_(tab){
   const sh=SpreadsheetApp.openById(getSettings_().spreadsheetId).getSheetByName(tab);
   if(!sh)throw new Error('Missing sheet '+tab);
   if(sh.getLastRow()<2)return [];

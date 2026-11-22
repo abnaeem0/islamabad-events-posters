@@ -43,7 +43,7 @@ export async function buildReviewPage(root='.'){
  if(script.includes('<?')||body.includes('<?'))throw new Error('build-review: template tag left in the page');
  if(/<\/script/i.test(script))throw new Error('build-review: dialog script contains a closing script tag');
  return top+'/* Review dialog (generated from apps-script/ReviewDialog.html) */\n'+style+'\n#lr-dialog{padding:16px}\n</style>\n</head>\n<body>\n'+
- `<div id="lr-bar"><b>Review</b><span id="lr-tabs"></span><span class="spacer"></span><span id="lr-saving"></span><span class="muted" id="lr-loaded"></span>
+ `<div id="lr-bar"><b>Review</b><span id="lr-tabs"></span><span class="spacer"></span><span id="lr-saving"></span><span id="lr-speed"></span><span class="muted" id="lr-loaded"></span>
 <button class="plain" id="lr-refresh" title="Fetch the lists again">Refresh lists</button><button class="plain" id="lr-reload" title="Load this entry again from the Sheet">Reload entry</button><button class="plain" id="lr-sheet">Open Sheet</button><button class="plain" id="lr-settings-btn">Settings</button></div>
 <div id="lr-failures" hidden></div>
 <div id="lr-settings-host"></div>
