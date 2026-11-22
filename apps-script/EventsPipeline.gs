@@ -242,6 +242,8 @@ function refreshEventViews_() {
     // Preserve deliberately blank manual corrections. Accepted edits live in Upcoming Events.
     if(!canonical.manual_notes)parts.forEach(function(part){
       if(part.suggested_group_id || conflicts.some(function(c){return c.p.id===part.id;}))return;
+      // A slide I linked into this post never fills the listing by itself (see localLinkSlides_).
+      if(companionClues_(part).slide_of_post)return;
       eventFields_().forEach(function(k){if(blank_(part[k]) && !blank_(canonical[k]))canonical[k]=part[k];});
     });
     let holdNew=false;

@@ -181,27 +181,33 @@ function lrFillSlides(box,row,d,r){
   img.addEventListener('click',()=>{lastFocus=img;$('zoom').hidden=false;$('zoomImg').onload=fitZoom;$('zoomImg').src=img.src;$('zoomClose').focus();});
   const tick=lrEl('input',{type:'checkbox'});tick.checked=c.state==='main'||c.state==='linked';tick.disabled=c.state==='main'||c.state==='blocked';tick.dataset.state=c.state;tick.dataset.fileId=c.fileId;checks.push(tick);
   const when=c.minutes===0?'same minute':(c.minutes>0?'+':'')+c.minutes+' min';
-  row.append(lrEl('div',{class:'slide '+(c.state==='main'?'main':c.state==='linked'?'linked':'')},img,lrEl('label',{},tick,lrEl('span',{text:when+' · '+c.detail}))));
+  // A screenshot with its own listing: either the same event (its listing joins this one) or just a slide
+  // (its picture helps this listing, its own listing stays, e.g. one workshop of several in a post).
+  let how=null;
+  if(c.state==='other'){how=lrEl('select',{class:'lr-how',title:'What is this screenshot to this listing?'},lrEl('option',{value:'merge',text:'Same event: merge it in'}),lrEl('option',{value:'support',text:'Just a slide: keep its own listing'}));how.disabled=!tick.checked;tick.addEventListener('change',()=>{how.disabled=!tick.checked;});tick.lrHow=how;}
+  row.append(lrEl('div',{class:'slide '+(c.state==='main'?'main':c.state==='linked'?'linked':'')},img,lrEl('label',{},tick,lrEl('span',{text:when+' · '+c.detail})),how));
  });
  if(r.candidates.length<2)row.append(lrEl('div',{class:'note',text:'No other screenshots near this one.'}));
  const msg=lrEl('span',{class:'note'});
  const apply=lrEl('button',{type:'button',text:'Save slides'});
  apply.onclick=()=>{
-  const link=checks.filter(t=>t.checked&&['none','other','support'].includes(t.dataset.state)).map(t=>t.dataset.fileId);
+  const isSupport=t=>t.dataset.state==='other'&&t.lrHow&&t.lrHow.value==='support';
+  const link=checks.filter(t=>t.checked&&['none','other','support'].includes(t.dataset.state)&&!isSupport(t)).map(t=>t.dataset.fileId);
+  const support=checks.filter(t=>t.checked&&isSupport(t)).map(t=>t.dataset.fileId);
   const unlink=checks.filter(t=>!t.checked&&t.dataset.state==='linked').map(t=>t.dataset.fileId);
-  if(!link.length&&!unlink.length){msg.textContent='Nothing changed.';return;}
-  const moving=checks.filter(t=>t.checked&&t.dataset.state==='other').length;
-  if(moving&&!confirm(moving+' ticked screenshot(s) have their own listing. Linking moves that listing into this one (like Merge). Continue?'))return;
+  if(!link.length&&!unlink.length&&!support.length){msg.textContent='Nothing changed.';return;}
+  const moving=checks.filter(t=>t.checked&&t.dataset.state==='other'&&!isSupport(t)).length;
+  if(moving&&!confirm(moving+' ticked screenshot(s) have their own listing. "Same event" merges that listing into this one and its review item goes away. Continue?'))return;
   if(typeof saved!=='undefined'&&!saved&&editSignature()!==baseline&&!confirm('Linking reloads this entry. Discard unsaved changes to the fields?'))return;
   apply.disabled=true;msg.textContent='Saving slides…';
-  lrCall('link',[{sourceId:d.sourceId,groupId:d.groupId,link,unlink}]).then(res=>{
+  lrCall('link',[{sourceId:d.sourceId,groupId:d.groupId,link,unlink,support}]).then(res=>{
    msg.textContent='Linked '+res.linked+', unlinked '+res.unlinked+(res.skipped.length?' · Skipped: '+res.skipped.join('; '):'')+'.';
    const ctx=queue[queueIndex];if(ctx)lrPrefetch.delete(lrKey(ctx));if(res.linked)lrReadAfterLoad=d.groupId;navigate(0);
   },e=>{apply.disabled=false;msg.textContent=e.message;});
  };
  const linkedCount=r.candidates.filter(c=>c.state==='main'||c.state==='linked').length;
- const read=lrEl('button',{type:'button',text:'Read all linked slides for missing details'});read.disabled=linkedCount<2;
- read.title=linkedCount<2?'Link at least one more slide first.':'Gemini reads the '+linkedCount+' linked screenshots together. Uses one Gemini call.';
+ const read=lrEl('button',{type:'button',text:'Read all linked slides as one listing'});read.disabled=linkedCount<2;
+ read.title=linkedCount<2?'Link at least one more slide first.':'Gemini reads the '+linkedCount+' linked screenshots together as one listing: fills missing details and flags clear mistakes. Uses one Gemini call.';
  // Pressing the button reads again even if an earlier answer is cached; linking reads once automatically.
  read.onclick=()=>lrReadSlides(d,true);
  box.append(lrEl('div',{style:'display:flex;gap:10px;align-items:center;margin-top:6px;flex-wrap:wrap'},apply,read,msg));

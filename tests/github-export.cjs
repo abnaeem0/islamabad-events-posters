@@ -64,7 +64,8 @@ console.log('PASS: review page token is separate, lists work, opens and saves th
  const fields={title:'Published event',start_date:'2099-12-20',venue:'Somewhere'};
  const read=review('read_slides',[{sourceId:mainNow.id,groupId:mainNow.group_id,mode:'edit',fields}]);assert(read.ok,read.error);
  assert.equal(calls,1);assert(seenImages>=2,'all linked slides go to Gemini together');
- assert.deepEqual(read.result.suggestions.map(x=>x.field),['address'],'only confident, sourced values for missing fields');
+ assert.deepEqual(read.result.suggestions.map(x=>x.field),['address','title'],'confident, sourced values: missing fields filled, clear mistakes flagged');
+ assert(/^Differs from the current value "Published event"/.test(read.result.suggestions[1].reason));
  assert(read.result.key&&read.result.sources.length>=2);
  const again2=review('read_slides',[{sourceId:mainNow.id,groupId:mainNow.group_id,mode:'edit',fields}]);assert(again2.ok&&again2.result.cached);assert.equal(calls,1,'same slides and facts: cached, no second Gemini call');
  assert.equal(run("vrRows_(PIPE.UPCOMING)[0].address||''"),'','reading slides saves nothing');
@@ -79,6 +80,24 @@ console.log('PASS: review page token is separate, lists work, opens and saves th
  const sup=review('link',[{sourceId:m2.id,groupId:m2.group_id,link:['two-workshops']}]);assert(sup.ok,sup.error);
  assert.equal(run("vrRows_(PIPE.RAW).filter(x=>x.original_image_file_id==='two-workshops'&&x.group_id==="+JSON.stringify(String(m2.group_id))+").length"),0,'its listings stay where they are');
  assert.equal(review('slides',[{sourceId:m2.id,groupId:m2.group_id}]).result.candidates.find(c=>c.fileId==='two-workshops').state,'linked');
+ // "Just a slide": a screenshot with its own listing lends its picture but keeps its listing.
+ {const keep=h.file('own-workshop',[8,8,8,8]);context.geminiRequest_=()=>({text:JSON.stringify({events:[{listing_kind:'event',title:'Workshop C',start_date:'2099-12-24',end_date:'2099-12-26',venue:'Studio',confidence:'high',uncertain_fields:[]}]})});context.keepFile=keep;run('processOneFile_(keepFile)');
+  run("(function(){const r=vrRows_(PIPE.RAW).find(x=>x.original_image_file_id==='own-workshop');vrUpdateRow_(PIPE.RAW,r._row,{group_id:'E_'+r.id,match_status:'separate'});})()");
+  const m3=run("vrRows_(PIPE.RAW).find(r=>r.original_image_file_id==='public-poster')");
+  const res=review('link',[{sourceId:m3.id,groupId:m3.group_id,support:['own-workshop']}]);assert(res.ok,res.error);
+  assert.notEqual(run("vrRows_(PIPE.RAW).find(x=>x.original_image_file_id==='own-workshop').group_id"),String(m3.group_id),'its own listing stays');
+  assert.equal(review('slides',[{sourceId:m3.id,groupId:m3.group_id}]).result.candidates.find(c=>c.fileId==='own-workshop').state,'linked');
+  // "Same event": its rows join, but never fill the listing's empty fields by themselves (no surprise end date).
+  const un2=review('link',[{sourceId:m3.id,groupId:m3.group_id,unlink:['own-workshop']}]);assert(un2.ok,un2.error);
+  // A fresh listing I have never edited (so the old blank-filling would apply).
+  const fresh=h.file('fresh-main',[6,6,6,6]);context.geminiRequest_=()=>({text:JSON.stringify({events:[{listing_kind:'event',title:'Night Market',start_date:'2099-12-24',venue:'F-9 Park',confidence:'high',uncertain_fields:[]}]})});context.freshFile=fresh;run('processOneFile_(freshFile)');
+  run("(function(){const r=vrRows_(PIPE.RAW).find(x=>x.original_image_file_id==='fresh-main');vrUpdateRow_(PIPE.RAW,r._row,{group_id:'E_'+r.id,match_status:'separate'});})()");run('withDataLock_(refreshEventViews_)');
+  const m4=run("vrRows_(PIPE.RAW).find(r=>r.original_image_file_id==='fresh-main')");
+  const res2=review('link',[{sourceId:m4.id,groupId:m4.group_id,link:['own-workshop']}]);assert(res2.ok,res2.error);
+  assert(run("companionClues_(vrRows_(PIPE.RAW).find(x=>x.original_image_file_id==='own-workshop')).slide_of_post"));
+  run('withDataLock_(refreshEventViews_)');
+  const listing=run("vrRows_(PIPE.UPCOMING).concat(vrRows_(PIPE.RECORDS)).find(r=>String(r.group_id)==="+JSON.stringify(String(m4.group_id))+")");
+  assert(listing,'listing still there');assert.equal(String(listing.end_date||''),'','a linked slide does not turn the listing into a multi-day event');}
  console.log('PASS: slides of a post can be listed, linked and unlinked, with no Drive calls under the lock.');
 }
 {

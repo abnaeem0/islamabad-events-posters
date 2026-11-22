@@ -37,10 +37,10 @@
 #lr-settings p{color:#65717f;margin:4px 0}.lr-err{color:#b42318;margin-top:10px;white-space:pre-wrap}
 .lr-empty{padding:40px;color:#65717f;text-align:center;font:14px system-ui,Arial,sans-serif}
 /* Slides of this post */
-#lr-slides{margin-top:14px;background:#fff;border:1px solid #ddd;border-radius:8px;padding:10px}
-#lr-slides .row{display:flex;gap:10px;overflow-x:auto;padding:6px 0}
+#lr-slides{max-width:100%;min-width:0;margin-top:14px;background:#fff;border:1px solid #ddd;border-radius:8px;padding:10px}
+#lr-slides .row{display:flex;gap:10px;overflow-x:auto;padding:6px 0 10px;max-width:100%}
 #lr-slides .slide{flex:0 0 auto;width:150px;font-size:11px;color:#3b4652}
-#lr-slides .slide img{width:150px;height:260px;object-fit:cover;object-position:top;border:2px solid #dde2e8;border-radius:6px;display:block;cursor:zoom-in;background:#eee}
+#lr-slides .slide img{width:150px;height:220px;object-fit:cover;object-position:top;border:2px solid #dde2e8;border-radius:6px;display:block;cursor:zoom-in;background:#eee}
 #lr-slides .slide.main img{border-color:#145c97}
 #lr-slides .slide.linked img{border-color:#2e9d5b}
 #lr-slides .slide label{display:flex;gap:4px;align-items:flex-start;margin-top:4px}
@@ -62,6 +62,11 @@
 #lr-lens{position:fixed;width:260px;height:260px;border:2px solid #145c97;border-radius:50%;pointer-events:none;z-index:60;box-shadow:0 4px 18px rgba(0,0,0,.25);background-repeat:no-repeat;background-color:#fff}
 #lr-speed{color:#65717f;font-size:12px}
 .lr-src{font-size:11px;color:#2e7d4f;margin-top:4px}.lr-src.slow{color:#b54708}
+/* Keep the page at screen width: wide content (the slides strip) scrolls inside its own box. */
+#lr-main>div,#lr-dialog,#lr-dialog>*{min-width:0}
+#lr-dialog .posters{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+#lr-dialog.single .posters,.single #lr-dialog .posters{grid-template-columns:minmax(0,1fr)}
+#lr-slides .lr-how{width:150px;font-size:11px;margin-top:4px}
 /* Review dialog (generated from apps-script/ReviewDialog.html) */
 
 *{box-sizing:border-box}[hidden]{display:none!important}body{font-family:Arial,sans-serif;color:#1d2936;margin:0;background:#fafbfc}h2{font-size:19px;margin:0 0 6px}.muted{color:#65717f;font-size:12px}.posters{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px}.poster{background:white;border:1px solid #ddd;padding:10px;border-radius:8px}.poster img{display:block;height:50vh;max-width:100%;margin:auto;object-fit:contain;cursor:zoom-in}.poster a{font-size:12px}.poster-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}.poster-foot{display:flex;gap:12px;align-items:center;margin-top:8px}.fields{margin-top:14px;border:1px solid #ddd;background:white}.field{display:grid;grid-template-columns:130px 1fr 1fr 1.15fr;gap:9px;align-items:center;padding:7px 10px;border-bottom:1px solid #eee}.field.changed{background:#fff9e8}.field label{font-weight:bold;font-size:12px}.field button{font-size:12px;text-align:left;overflow-wrap:anywhere;background:white;border:1px solid #ddd;border-radius:4px;padding:8px;cursor:pointer;white-space:pre-wrap}.field button.chosen{border:2px solid #2670ac;background:#edf6ff}.field input,.field textarea{width:100%;padding:8px;border:1px solid #ccc;border-radius:4px;font:13px Arial}.field textarea{min-height:60px;resize:vertical}.actions{position:sticky;bottom:0;background:#fafbfc;padding:12px 0;border-top:1px solid #ccc;display:flex;align-items:center;gap:8px;flex-wrap:wrap}button{cursor:pointer;padding:7px 10px}button.primary{background:#145c97;color:white;border:0;padding:12px 20px;border-radius:5px}select{padding:10px;max-width:100%}#status{font-size:13px;color:#585858}.loading{height:50vh;display:grid;place-items:center;color:#65717f;font-size:13px}.single .posters{grid-template-columns:1fr}.single .field{grid-template-columns:140px 1fr 1.2fr}.single .incoming-value{display:none}#evidence{margin-top:10px;white-space:pre-wrap}.zoom{position:fixed;inset:0;background:#15212a;z-index:100;display:flex;flex-direction:column}.zoom[hidden]{display:none}.zoom-tools{display:flex;align-items:center;gap:8px;padding:10px;color:white;background:#20313e}.zoom-tools span{margin-right:auto;font-size:13px}.zoom-view{flex:1;overflow:auto;padding:12px;cursor:grab;touch-action:pan-x pan-y}.zoom-view.dragging{cursor:grabbing}.zoom-view img{display:block;max-width:none;max-height:none;margin:auto;user-select:none}.research-box{margin:12px 0;padding:12px;border:1px solid #d6e1eb;border-radius:6px;background:#f1f7fc}.research-item{border-top:1px solid #d6e1eb;padding:10px 0;white-space:pre-wrap}.research-item a{margin-right:12px;font-size:12px}.source-row{padding:7px 0;display:flex;align-items:center;gap:10px}.source-row span{overflow-wrap:anywhere;font-size:12px}.draft textarea{width:100%;min-height:140px;padding:10px}.research-box iframe{width:100%;height:150px;border:0;background:white}.zoom-open:disabled{cursor:default;opacity:.45}#posterChoice{max-width:300px}
@@ -380,27 +385,33 @@ function lrFillSlides(box,row,d,r){
   img.addEventListener('click',()=>{lastFocus=img;$('zoom').hidden=false;$('zoomImg').onload=fitZoom;$('zoomImg').src=img.src;$('zoomClose').focus();});
   const tick=lrEl('input',{type:'checkbox'});tick.checked=c.state==='main'||c.state==='linked';tick.disabled=c.state==='main'||c.state==='blocked';tick.dataset.state=c.state;tick.dataset.fileId=c.fileId;checks.push(tick);
   const when=c.minutes===0?'same minute':(c.minutes>0?'+':'')+c.minutes+' min';
-  row.append(lrEl('div',{class:'slide '+(c.state==='main'?'main':c.state==='linked'?'linked':'')},img,lrEl('label',{},tick,lrEl('span',{text:when+' · '+c.detail}))));
+  // A screenshot with its own listing: either the same event (its listing joins this one) or just a slide
+  // (its picture helps this listing, its own listing stays, e.g. one workshop of several in a post).
+  let how=null;
+  if(c.state==='other'){how=lrEl('select',{class:'lr-how',title:'What is this screenshot to this listing?'},lrEl('option',{value:'merge',text:'Same event: merge it in'}),lrEl('option',{value:'support',text:'Just a slide: keep its own listing'}));how.disabled=!tick.checked;tick.addEventListener('change',()=>{how.disabled=!tick.checked;});tick.lrHow=how;}
+  row.append(lrEl('div',{class:'slide '+(c.state==='main'?'main':c.state==='linked'?'linked':'')},img,lrEl('label',{},tick,lrEl('span',{text:when+' · '+c.detail})),how));
  });
  if(r.candidates.length<2)row.append(lrEl('div',{class:'note',text:'No other screenshots near this one.'}));
  const msg=lrEl('span',{class:'note'});
  const apply=lrEl('button',{type:'button',text:'Save slides'});
  apply.onclick=()=>{
-  const link=checks.filter(t=>t.checked&&['none','other','support'].includes(t.dataset.state)).map(t=>t.dataset.fileId);
+  const isSupport=t=>t.dataset.state==='other'&&t.lrHow&&t.lrHow.value==='support';
+  const link=checks.filter(t=>t.checked&&['none','other','support'].includes(t.dataset.state)&&!isSupport(t)).map(t=>t.dataset.fileId);
+  const support=checks.filter(t=>t.checked&&isSupport(t)).map(t=>t.dataset.fileId);
   const unlink=checks.filter(t=>!t.checked&&t.dataset.state==='linked').map(t=>t.dataset.fileId);
-  if(!link.length&&!unlink.length){msg.textContent='Nothing changed.';return;}
-  const moving=checks.filter(t=>t.checked&&t.dataset.state==='other').length;
-  if(moving&&!confirm(moving+' ticked screenshot(s) have their own listing. Linking moves that listing into this one (like Merge). Continue?'))return;
+  if(!link.length&&!unlink.length&&!support.length){msg.textContent='Nothing changed.';return;}
+  const moving=checks.filter(t=>t.checked&&t.dataset.state==='other'&&!isSupport(t)).length;
+  if(moving&&!confirm(moving+' ticked screenshot(s) have their own listing. "Same event" merges that listing into this one and its review item goes away. Continue?'))return;
   if(typeof saved!=='undefined'&&!saved&&editSignature()!==baseline&&!confirm('Linking reloads this entry. Discard unsaved changes to the fields?'))return;
   apply.disabled=true;msg.textContent='Saving slides…';
-  lrCall('link',[{sourceId:d.sourceId,groupId:d.groupId,link,unlink}]).then(res=>{
+  lrCall('link',[{sourceId:d.sourceId,groupId:d.groupId,link,unlink,support}]).then(res=>{
    msg.textContent='Linked '+res.linked+', unlinked '+res.unlinked+(res.skipped.length?' · Skipped: '+res.skipped.join('; '):'')+'.';
    const ctx=queue[queueIndex];if(ctx)lrPrefetch.delete(lrKey(ctx));if(res.linked)lrReadAfterLoad=d.groupId;navigate(0);
   },e=>{apply.disabled=false;msg.textContent=e.message;});
  };
  const linkedCount=r.candidates.filter(c=>c.state==='main'||c.state==='linked').length;
- const read=lrEl('button',{type:'button',text:'Read all linked slides for missing details'});read.disabled=linkedCount<2;
- read.title=linkedCount<2?'Link at least one more slide first.':'Gemini reads the '+linkedCount+' linked screenshots together. Uses one Gemini call.';
+ const read=lrEl('button',{type:'button',text:'Read all linked slides as one listing'});read.disabled=linkedCount<2;
+ read.title=linkedCount<2?'Link at least one more slide first.':'Gemini reads the '+linkedCount+' linked screenshots together as one listing: fills missing details and flags clear mistakes. Uses one Gemini call.';
  // Pressing the button reads again even if an earlier answer is cached; linking reads once automatically.
  read.onclick=()=>lrReadSlides(d,true);
  box.append(lrEl('div',{style:'display:flex;gap:10px;align-items:center;margin-top:6px;flex-wrap:wrap'},apply,read,msg));

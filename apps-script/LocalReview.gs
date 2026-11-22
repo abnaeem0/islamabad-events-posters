@@ -19,7 +19,7 @@ const LOCAL_REVIEW_CALLS={
  poster:(sourceId,fileId)=>getVisualPoster(sourceId,fileId,true,false),
  slides:payload=>localSlideCandidates_(payload),
  // Drive look-ups happen before taking the data lock, so the lock stays short.
- link:payload=>{const metas=localSlideMetas_(payload&&payload.link);return withDataLock_(()=>localLinkSlides_(payload,metas));},
+ link:payload=>{const metas=localSlideMetas_([].concat((payload&&payload.link)||[],(payload&&payload.support)||[]));return withDataLock_(()=>localLinkSlides_(payload,metas));},
  read_slides:payload=>readLinkedSlides(payload),
  // Website suggestions (Suggestions.gs)
  suggestions:()=>({ok:true,items:openSuggestions_()}),
@@ -111,7 +111,9 @@ function localLinkSlides_(payload,metas){
   if(id===mainId||localSlideAttachedIn_(rows,id,groupId).length)return;
   const own=rows.filter(r=>String(r.original_image_file_id)===id),groups=Array.from(new Set(own.map(r=>String(r.group_id))));
   if(own.length&&groups.length===1){
-   own.forEach(r=>{if(String(r.group_id)!==groupId){vrUpdateRow_(PIPE.RAW,r._row,{group_id:groupId,match_status:'manual',review_reason:'',suggested_group_id:''});movedSources.push(String(r.id));}});
+   // Same event: its rows join this listing. Marked as a slide of this post, so the rebuild does not copy its own
+   // (possibly misread) details into the listing; they come in only through "Read all linked slides", which I choose from.
+   own.forEach(r=>{if(String(r.group_id)!==groupId){vrUpdateRow_(PIPE.RAW,r._row,{group_id:groupId,match_status:'manual',review_reason:'',suggested_group_id:''});cluesOf(r).slide_of_post=String(source.id);movedSources.push(String(r.id));}});
    done.linked++;return;
   }
   if(!metas[id]){done.skipped.push(id+': file not found');return;}
@@ -120,9 +122,15 @@ function localLinkSlides_(payload,metas){
   if(!own.length)markProcessed_(id);
   done.linked++;
  });
+ // "Just a slide": use the picture (and its text, when reading all slides) but keep its own listing.
+ (payload.support||[]).slice(0,40).map(String).forEach(id=>{
+  if(id===mainId||localSlideAttachedIn_(rows,id,groupId).length)return;
+  if(!metas[id]){done.skipped.push(id+': file not found');return;}
+  const clues=cluesOf(source);clues.source_images=(clues.source_images||[]).concat([metas[id]]);done.linked++;
+ });
  (payload.unlink||[]).map(String).forEach(id=>{
   if(id===mainId)return;
-  rows.filter(r=>String(r.original_image_file_id)===id&&String(r.group_id)===groupId&&String(r.id)!==String(source.id)).forEach(r=>{vrUpdateRow_(PIPE.RAW,r._row,{group_id:'E_'+String(r.id),match_status:'separate',review_reason:'',suggested_group_id:''});done.unlinked++;});
+  rows.filter(r=>String(r.original_image_file_id)===id&&String(r.group_id)===groupId&&String(r.id)!==String(source.id)).forEach(r=>{vrUpdateRow_(PIPE.RAW,r._row,{group_id:'E_'+String(r.id),match_status:'separate',review_reason:'',suggested_group_id:''});delete cluesOf(r).slide_of_post;done.unlinked++;});
   localSlideAttachedIn_(rows,id,groupId).forEach(r=>{const clues=cluesOf(r);clues.source_images=(clues.source_images||[]).filter(x=>String(x.fileId)!==id);done.unlinked++;});
  });
  clueEdits.forEach((clues,row)=>{if(clues.source_images&&!clues.source_images.length)delete clues.source_images;vrUpdateRow_(PIPE.RAW,row,{companion_clues:JSON.stringify(clues)});});
