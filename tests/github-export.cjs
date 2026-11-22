@@ -49,6 +49,7 @@ console.log('PASS: review page token is separate, lists work, opens and saves th
  const st=Object.fromEntries(cands.result.candidates.map(c=>[c.fileId,c.state]));
  assert.equal(st['public-poster'],'main');assert.equal(st['slide-2'],'none');assert.equal(st['slide-3'],'other');
  const linked=review('link',[{sourceId:main.id,groupId:main.group_id,link:['slide-2','slide-3']}]);assert(linked.ok,linked.error);assert.equal(linked.result.linked,2);
+ assert.deepEqual(linked.result.merged,[run("String(vrRows_(PIPE.RAW).find(r=>r.original_image_file_id==='slide-3').id)")],'merged sources are reported so the page drops their review items');
  assert.equal(run("vrRows_(PIPE.RAW).find(r=>r.original_image_file_id==='slide-3').group_id"),String(main.group_id));
  assert(run("companionClues_(vrRows_(PIPE.RAW).find(r=>r.original_image_file_id==='public-poster')).source_images.some(x=>x.fileId==='slide-2')"));
  assert(run("isProcessed_('slide-2')"),'a linked slide is not extracted on its own later');

@@ -136,7 +136,8 @@ function localLinkSlides_(payload,metas){
  clueEdits.forEach((clues,row)=>{if(clues.source_images&&!clues.source_images.length)delete clues.source_images;vrUpdateRow_(PIPE.RAW,row,{companion_clues:JSON.stringify(clues)});});
  if(movedSources.length){const rev=reviewSpreadsheet_().getSheetByName(PIPE.REVIEW);vrRows_(PIPE.REVIEW).filter(r=>movedSources.includes(String(r.source_id))).map(r=>r._row).sort((a,b)=>b-a).forEach(n=>rev.deleteRow(n));}
  markPipelineDirty_();
- return Object.assign({ok:true},done);
+ // Sources merged in as "same event": the page drops their review items from its list straight away.
+ return Object.assign({ok:true,merged:movedSources},done);
 }
 /**
  * Run once from the Apps Script editor (or again to replace a leaked token).

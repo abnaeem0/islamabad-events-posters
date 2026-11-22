@@ -406,6 +406,11 @@ function lrFillSlides(box,row,d,r){
   apply.disabled=true;msg.textContent='Saving slides…';
   lrCall('link',[{sourceId:d.sourceId,groupId:d.groupId,link,unlink,support}]).then(res=>{
    msg.textContent='Linked '+res.linked+', unlinked '+res.unlinked+(res.skipped.length?' · Skipped: '+res.skipped.join('; '):'')+'.';
+   // Review items of screenshots merged in as "same event" are gone from the Sheet: take them off this list now,
+   // so "Next" never lands on them.
+   const merged=new Set((res.merged||[]).map(String));
+   if(merged.size){const current=queue[queueIndex];for(let i=queue.length-1;i>=0;i--){if(queue[i].mode==='review'&&merged.has(String(queue[i].sourceId))&&queue[i]!==current){lrPrefetch.delete(lrKey(queue[i]));queue.splice(i,1);if(i<queueIndex)queueIndex--;}}
+    if(lrQueues&&lrQueues.review)lrQueues.review=lrQueues.review.filter(q=>!merged.has(String(q.sourceId))||lrKey(q)===lrKey(current));lrRenderTabs();}
    const ctx=queue[queueIndex];if(ctx)lrPrefetch.delete(lrKey(ctx));if(res.linked)lrReadAfterLoad=d.groupId;navigate(0);
   },e=>{apply.disabled=false;msg.textContent=e.message;});
  };
