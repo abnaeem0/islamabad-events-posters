@@ -5,3 +5,4 @@ node_modules/
 docs-staging/
 docs-previous/
 .export-skipped
+.poster-cache/

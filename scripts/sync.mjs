@@ -1,10 +1,10 @@
-import {readFile,writeFile,mkdir,copyFile,rm,rename} from 'node:fs/promises';
+import {readFile,writeFile,mkdir,copyFile,rm,rename,readdir} from 'node:fs/promises';
 import {createRequire} from 'node:module';import {pathToFileURL} from 'node:url';import {createHash} from 'node:crypto';
 const require=createRequire(import.meta.url),{render}=require('./render.cjs'),{cropPoster}=require('./crop.cjs');
 export function escapeHtml(value){return String(value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
-// The Sheet lock is held for a few seconds at a time by inbox runs and review saves.
-// Retry a busy Sheet a few times instead of failing the whole build.
-export async function request(action,extra={},waits=[20000,40000,60000]){
+// The Sheet lock can be held for minutes while Apps Script rebuilds the tabs (PLAN.md, Bugs).
+// No Apps Script run lasts longer than 6 minutes, so keep retrying a busy Sheet for about that long.
+export async function request(action,extra={},waits=[15000,30000,45000,60000,90000,120000]){
  for(let attempt=0;;attempt++){
   try{return await requestOnce(action,extra);}
   catch(error){if(attempt>=waits.length||!/saving another change/i.test(error.message))throw error;console.log('Sheet busy; retrying '+action+' in '+waits[attempt]/1000+'s.');await new Promise(r=>setTimeout(r,waits[attempt]));}
@@ -26,7 +26,19 @@ export function publicationSignature(manifest){
  const entries=manifest.items.map(entry=>({item:{...entry.item,published_at:'',last_checked:''},images:entry.images.map(image=>({fileId:image.fileId,crop:image.crop}))})).sort((a,b)=>a.item.id.localeCompare(b.item.id));
  return createHash('sha256').update(JSON.stringify(canonical(entries))).digest('hex');
 }
-export async function buildExport(manifest,getImage,verify,output='docs',preparedImages=new Map()){
+// Cropped posters kept between builds (restored and saved by actions/cache in pages.yml), so a build
+// only downloads screenshots that are new or have a new crop. The key includes the crop code, so
+// changing the crop rules re-crops everything. Drive screenshots are never edited in place.
+export function posterCache(dir,salt=''){
+ const used=new Set(),path=key=>dir+'/'+createHash('sha256').update(salt+'|'+key).digest('hex')+'.jpg';
+ return {
+  async get(key){used.add(path(key));try{return await readFile(path(key));}catch{return null;}},
+  async set(key,crop){await mkdir(dir,{recursive:true});await writeFile(path(key),crop);used.add(path(key));},
+  // Drop posters this build did not use, so the cache does not grow forever.
+  async prune(){let names=[];try{names=await readdir(dir);}catch{return 0;}let removed=0;for(const name of names)if(!used.has(dir+'/'+name)){await rm(dir+'/'+name,{force:true});removed++;}return removed;}
+ };
+}
+export async function buildExport(manifest,getImage,verify,output='docs',preparedImages=new Map(),store=null){
  if(!manifest||!Array.isArray(manifest.items)||manifest.items.length>10000||typeof manifest.version!=='string')throw new Error('Invalid manifest');
  const stage=output+'-staging';await rm(stage,{recursive:true,force:true});await mkdir(stage+'/posters',{recursive:true});await mkdir(stage+'/assets',{recursive:true});await mkdir(stage+'/data',{recursive:true});
  for(const file of ['styles.css','assets/app.js'])await copyFile(output+'/'+file,stage+'/'+file);
@@ -44,8 +56,10 @@ export async function buildExport(manifest,getImage,verify,output='docs',prepare
    const key=JSON.stringify([image.fileId,image.crop]);let local=cache.get(key);
    if(!local){
     let prepared=preparedImages.get(key);
-    if(!prepared){const result=await getImage(image);const bytes=Buffer.from(result.data||'','base64');if(bytes.length>6*1024*1024)throw new Error('Source exceeds size limit');
-     const crop=cropPoster(bytes,result.mime,image.crop);prepared={local:'posters/'+createHash('sha256').update(crop).digest('hex')+'.jpg',crop};preparedImages.set(key,prepared);
+    if(!prepared){let crop=store?await store.get(key):null;
+     if(!crop){const result=await getImage(image);const bytes=Buffer.from(result.data||'','base64');if(bytes.length>6*1024*1024)throw new Error('Source exceeds size limit');
+      crop=cropPoster(bytes,result.mime,image.crop);if(store)await store.set(key,crop);}
+     prepared={local:'posters/'+createHash('sha256').update(crop).digest('hex')+'.jpg',crop};preparedImages.set(key,prepared);
     }
     local=prepared.local;await writeFile(stage+'/'+local,prepared.crop);cache.set(key,local);
    }if(!posters.includes(local))posters.push(local);
@@ -75,10 +89,10 @@ export async function buildExport(manifest,getImage,verify,output='docs',prepare
 }
 // Only cropped public images are kept in memory, within this run. Each attempt
 // rebuilds the staged site from the latest manifest, so removals cannot linger.
-export async function buildLatestExport(initial,getImage,verify,output='docs',maxAttempts=3){
+export async function buildLatestExport(initial,getImage,verify,output='docs',maxAttempts=3,cache=null){
  let manifest=initial;const preparedImages=new Map();
  for(let attempt=1;attempt<=maxAttempts;attempt++){
-  try{let verifiedVersion=manifest.version;const snapshot=await buildExport(manifest,getImage,async()=>{const current=await verify();verifiedVersion=current.version;return current;},output,preparedImages);return {snapshot,version:verifiedVersion};}
+  try{let verifiedVersion=manifest.version;const snapshot=await buildExport(manifest,getImage,async()=>{const current=await verify();verifiedVersion=current.version;return current;},output,preparedImages,cache);return {snapshot,version:verifiedVersion};}
   catch(error){
    if(!error.latestManifest)throw error;
    const latest=error.latestManifest;
@@ -93,6 +107,8 @@ export async function buildLatestExport(initial,getImage,verify,output='docs',ma
  }
 }
 async function main(){if(process.argv.includes('--ack')){let skipped=[];try{skipped=JSON.parse(await readFile('.export-skipped','utf8'));}catch{}await request('ack',{version:(await readFile('.export-version','utf8')).trim(),skipped});return;}
- const manifest=await request('manifest');const result=await buildLatestExport(manifest,image=>request('file',image),()=>request('manifest'));await writeFile('.export-version',result.version);await writeFile('.export-skipped',JSON.stringify(result.snapshot.skipped||[]));
+ const cache=posterCache(process.env.POSTER_CACHE_DIR||'.poster-cache',createHash('sha256').update(await readFile(new URL('./crop.cjs',import.meta.url))).digest('hex'));
+ let downloads=0;const manifest=await request('manifest');const result=await buildLatestExport(manifest,image=>{downloads++;return request('file',image);},()=>request('manifest'),'docs',3,cache);
+ const removed=await cache.prune();console.log('Poster cache: downloaded '+downloads+' screenshots; '+removed+' unused cached posters removed.');await writeFile('.export-version',result.version);await writeFile('.export-skipped',JSON.stringify(result.snapshot.skipped||[]));
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href)main().catch(e=>{console.error(e.message);process.exitCode=1;});

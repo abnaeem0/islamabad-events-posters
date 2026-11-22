@@ -76,7 +76,7 @@ Flow: phone screenshot -> Google Drive inbox -> Apps Script + Gemini -> Google S
 - `apps-script/PublicOutbox.gs`: removal queue for the old non-GitHub publishing path.
 - `apps-script/SetupGitHub.gs`: one-time token and Pages URL setup.
 - `apps-script/FreshStart.gs`: destructive reset of generated tabs. Backs up first.
-- `scripts/sync.mjs`: pulls the manifest and images, crops posters, builds the site, swaps `docs/`.
+- `scripts/sync.mjs`: pulls the manifest and images, crops posters, builds the site, swaps `docs/`. Keeps cropped posters between builds in `.poster-cache` (a GitHub Actions cache), so only new or re-cropped screenshots are downloaded.
 - `scripts/crop.cjs`: generated bundle of `src/crop.ts`. The crop is a plain rectangle cut and the decoder caps images at about 5 megapixels.
 - `scripts/build.mjs`: bundles `src/` into `docs/assets/app.js` and `scripts/render.cjs`.
 - `.github/workflows/pages.yml`: hourly build and deploy. `.github/workflows/sync-apps-script.yml`: uploads `apps-script/` to Google when it changes on `main`.
@@ -86,7 +86,7 @@ Flow: phone screenshot -> Google Drive inbox -> Apps Script + Gemini -> Google S
 
 **Tests** (all currently pass)
 - `tests/*.cjs`: Apps Script logic, using a fake Google environment in `tests/harness.cjs`. Run each with `node tests/<name>.cjs`. `tests/suggestions.cjs` covers the website suggestions.
-- `scripts/*.test.mjs`: export, site, event-phase, Instagram-link, WhatsApp-contact and review-page checks (`review-page.test.mjs` fails if `review/index.html` is out of date). `npm test` runs `scripts/site.test.mjs`, `scripts/event-phase.test.mjs`, `scripts/instagram-links.test.mjs` and `scripts/whatsapp-contact.test.mjs`.
+- `scripts/*.test.mjs`: export, poster-cache, site, event-phase, Instagram-link, WhatsApp-contact and review-page checks (`review-page.test.mjs` fails if `review/index.html` is out of date). `npm test` runs `scripts/site.test.mjs`, `scripts/event-phase.test.mjs`, `scripts/instagram-links.test.mjs` and `scripts/whatsapp-contact.test.mjs`.
 
 **Other**
 - `README.md` is out of date. `samples/sample-event.json` is not used by any test.

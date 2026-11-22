@@ -15,10 +15,10 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
     environment:
       name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+      url: ${{ steps.deployment.outputs.page_url || steps.deployment_retry.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -27,20 +27,46 @@ jobs:
       - name: Configure Pages
         id: pages
         uses: actions/configure-pages@v5
+      # Cropped posters from earlier builds, so only new or re-cropped screenshots are downloaded.
+      - name: Restore poster cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .poster-cache
+          key: poster-cache-restore
+          restore-keys: poster-cache-
       - name: Export from Google and crop approved posters
         env:
           EXPORT_URL: ${{ secrets.EXPORT_URL }}
           EXPORT_TOKEN: ${{ secrets.EXPORT_TOKEN }}
           PUBLIC_URL: ${{ steps.pages.outputs.base_url }}
         run: node scripts/sync.mjs
+      # Saved even when the export fails, so the posters it did download are not fetched again.
+      # The key changes only when the cached posters change.
+      - name: Save poster cache
+        if: always()
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: .poster-cache
+          key: poster-cache-${{ hashFiles('.poster-cache/*.jpg') }}
       - name: Validate public files
         run: node --test scripts/site.test.mjs
       - uses: actions/upload-pages-artifact@v3
         with:
           path: docs
           retention-days: 1
+      # GitHub sometimes cannot find the uploaded site for a moment ("Fetching artifact
+      # metadata failed"). Wait a minute and try once more before failing.
       - name: Publish
         id: deployment
+        continue-on-error: true
+        uses: actions/deploy-pages@v4
+      - name: Wait before retrying publish
+        if: steps.deployment.outcome == 'failure'
+        run: sleep 60
+      - name: Retry publish
+        if: steps.deployment.outcome == 'failure'
+        id: deployment_retry
         uses: actions/deploy-pages@v4
       - name: Confirm deployment to spreadsheet
         continue-on-error: true
